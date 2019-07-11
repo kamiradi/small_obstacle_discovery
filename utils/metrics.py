@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 
 
 class Evaluator(object):
@@ -37,29 +38,112 @@ class Evaluator(object):
         count = np.bincount(label, minlength=self.num_class**2)
         confusion_matrix = count.reshape(self.num_class, self.num_class)
         return confusion_matrix
-    
 
-    def pdr_metric(self,truth,pred,class_id):
+    def pdr_metric(self,class_id):
         """
         Precision and recall metric for each class
          class_id=2 for small obstacle [0-off road,1-on road]
         """
-        truth_mask=truth==class_id
-        pred_mask=pred==class_id
+        truth_mask=self.gt_labels==class_id
+        pred_mask=self.pred_labels==class_id
+
         true_positive=(truth_mask & pred_mask)
         true_positive=np.count_nonzero(true_positive==True)
-        total=np.count_nonzero(truth_mask==True)
-        recall=float(true_positive/total)
-        precision=float(true_positive/np.count_nonzero(pred_mask==True))
-        return recall,precision
 
+        total=np.count_nonzero(truth_mask==True)
+        pred=np.count_nonzero(pred_mask==True)
+
+        if total != 0:
+            recall=float(true_positive/total)
+        else:
+            recall = None
+
+        if pred != 0:
+            precision=float(true_positive/pred)
+        else:
+            precision = None
+        return recall,precision
 
     def add_batch(self, gt_image, pre_image):
         assert gt_image.shape == pre_image.shape
+        if len(self.gt_labels) == 0 and len(self.pred_labels) == 0:
+            self.gt_labels=gt_image
+            self.pred_labels=pre_image
+        else:
+            self.gt_labels=np.append(self.gt_labels,gt_image,axis=0)
+            self.pred_labels=np.append(self.pred_labels,pre_image,axis=0)
+
         self.confusion_matrix += self._generate_matrix(gt_image, pre_image)
 
     def reset(self):
         self.confusion_matrix = np.zeros((self.num_class,) * 2)
+        self.gt_labels=[] 
+        self.pred_labels=[]
+
+    # def add_batch(self, gt_image, pre_image):
+    #     assert gt_image.shape == pre_image.shape
+    #     self.confusion_matrix += self._generate_matrix(gt_image, pre_image)
+
+    # def reset(self):
+    #     self.confusion_matrix = np.zeros((self.num_class,) * 2)
+
+    def idr_metric(self, class_id, thresh=0.5):
+
+        # get masks for the interested class
+        truth_mask = self.gt_labels == class_id
+        pred_mask = self.pred_labels == class_id
+
+        print(truth_mask.shape)
+        truth_mask = np.asarray(truth_mask, dtype=np.uint8)
+        pred_mask = np.asarray(pred_mask, dtype=np.uint8)
+        # truth_mask = np.reshape(truth_mask, (truth_mask.shape[0],
+        #                                      truth_mask.shape[1 ],
+        #                                      truth_mask.shape[2], 1))
+        # pred_mask = np.reshape(pred_mask, (truth_mask.shape[0],
+        #                                      truth_mask.shape[1],
+        #                                      truth_mask.shape[2], 1))
+
+        labels_gt = []
+        labels_pred = []
+        # retrieve instances
+        for i in range(len(truth_mask)):
+            _, _gt = cv2.connectedComponents(np.asarray(truth_mask[i],
+                                                           dtype=np.uint8), connectivity=4)
+            _, _pred = cv2.connectedComponents(np.asarray(pred_mask[i],
+                                                             dtype=np.uint8), connectivity=4)
+
+            labels_gt.append(_gt)
+            labels_pred.append(_pred)
+
+        labels_gt = np.asarray(labels_gt)
+        labels_pred = np.asarray(labels_pred)
+
+
+        # get a list of all the unique instances to iterate through
+        instance_ids = np.unique(labels_gt)
+        true_positives = 0
+        for instance in instance_ids:
+
+            # ignore background instance
+            if instance != 0:
+
+                # retrieve masks for individual instances
+                gt_mask = labels_gt == instance
+                pred_mask = labels_pred == instance
+                positives = gt_mask & pred_mask
+                iou = np.sum(positives)/np.sum(gt_mask)
+
+                # we consider an instance to be detected if the iou is greater
+                # than a certain threshold
+                if iou>thresh:
+                    true_positives+=1
+
+        total = len(instance_ids) - 1
+        if total != 0:
+            idr = true_positives/(len(instance_ids) - 1)
+        else:
+            idr = None
+        return idr
 
 
 

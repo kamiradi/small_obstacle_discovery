@@ -59,9 +59,7 @@ def make_data_loader(args, **kwargs):
 		dataset_path['val'] = images[int(0.7 * len_dataset):int(0.9 * len_dataset)]
 		dataset_path['test'] = images[int(0.9 * len_dataset):]
 
-		print("Dataset found ... Train Size: {}, Val Size: {}, Test Size: {}".format(len(dataset_path['train']),
-																					 len(dataset_path['val']),
-																					 len(dataset_path['test'])))
+		print("Dataset found ... Train Size: {}, Val Size: {}, Test Size: {}".format(len(dataset_path['train']), len(dataset_path['val']), len(dataset_path['test'])))
 
 		train_set = small_obstacle.SmallObs(args,image_paths=dataset_path['train'],split='train')
 		val_set = small_obstacle.SmallObs(args,image_paths=dataset_path['val'],split='val')
