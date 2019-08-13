@@ -164,12 +164,13 @@ def get_ImagesAndLabels_contextnet(path, data_type='train', num_samples=None):
     image_path = path+'leftImg8bit/'+data_type+'/'
     label_path = path+'gtCoarse/'+data_type+'/'
     for a in sorted(os.listdir(image_path)):
-        temp = os.path.join(image_path, a)
-        for img in os.listdir(temp):
-            images.append(os.path.join(temp, img))
-            label = img.split('_leftImg8bit.png')[0]+'_gtCoarse_labelTrainIds.png'
-            label = os.path.join(label_path, a, label)
-            labels.append(label)
+        if a != '.DS_Store':
+            temp = os.path.join(image_path, a)
+            for img in os.listdir(temp):
+                images.append(os.path.join(temp, img))
+                label = img.split('_leftImg8bit.png')[0]+'_gtCoarse_labelTrainIds.png'
+                label = os.path.join(label_path, a, label)
+                labels.append(label)
 
     result = list(zip(images, labels))
     random.shuffle(result)
@@ -180,7 +181,7 @@ def get_ImagesAndLabels_contextnet(path, data_type='train', num_samples=None):
         return images, labels
 
 # image paths for mergenet training
-def get_ImagesAndLabels_mergenet(path, data_type='train'):
+def get_ImagesAndLabels_mergenet(path, data_type='train', num_samples=None):
     images= []
     labels = []
     disparity = []
@@ -202,7 +203,10 @@ def get_ImagesAndLabels_mergenet(path, data_type='train'):
     result = list(zip(images, disparity, labels))
     random.shuffle(result)
     images, disparity, labels = zip(*result)
-    return images, disparity, labels
+    if num_samples is not None:
+        return images[:num_samples], disparity[:num_samples], labels[:num_samples]
+    else:
+        return images, disparity, labels
 
 def generate_additional_stripes(images, disparities, labels, path, width=32, num_stripes=56, stride=9, data_type='train', step_size=32):
     images = list(images)
@@ -291,12 +295,6 @@ class LNFGeneratorTorch(Dataset):
             return ([np.asarray(X_rgb), np.asarray(X_dis)],
                     np.asarray(Y_mask))
         elif self.flag == 'context':
-            # if index == (self.__len__() - 1):
-            #     batch_x_rgb = self._x_rgb[index * self._batch_size:]
-            #     batch_y_mask = self._y_mask[index * self._batch_size:]
-            # else:
-            #     batch_x_rgb = self._x_rgb[index * self._batch_size:(index + 1) * self._batch_size]
-            #     batch_y_mask = self._y_mask[index * self._batch_size:(index + 1) * self._batch_size]
 
             X_rgb = LNFGeneratorTorch._context_func_rgb(self._x_rgb[index])
             Y_mask = LNFGeneratorTorch._context_func_labels(self._y_mask[index])
@@ -312,28 +310,22 @@ class LNFGeneratorTorch(Dataset):
                     return self.transform_ts(sample)
 
         elif self.flag == 'merge':
-            if index == (self.__len__() - 1):
-                batch_x_rgb = self._x_rgb[index * self._batch_size:]
-                batch_x_dis = self._x_dis[index * self._batch_size:]
-                batch_y_mask = self._y_mask[index * self._batch_size:]
-            else:
-                batch_x_rgb = self._x_rgb[index * self._batch_size:(index+1) * self._batch_size]
-                batch_x_dis = self._x_dis[index * self._batch_size:(index+1) * self._batch_size]
-                batch_y_mask = self._y_mask[index * self._batch_size:(index+1) * self._batch_size]
-
-            # # creation of tensors
-            # X_rgb, X_dis = self._create_feature_tensor(batch_x_rgb, batch_x_dis)
-            # Y_mask = self._create_label_tensor(batch_y_mask)
-            # return ([X_rgb, X_dis], Y_mask) 
-
-            X_rgb, X_dis = self._mergenet_feature_tensor_pool(batch_x_rgb, batch_x_dis)
-            Y_mask = self._mergenet_label_tensor_pool(batch_y_mask)
-            return ([np.asarray(X_rgb), np.asarray(X_dis)],
-                    np.asarray(Y_mask))
+            X_rgb = LNFGeneratorTorch._mergenet_func_rgb(self._x_rgb[index])
+            X_disp = LNFGeneratorTorch._mergenet_func_disparity(self._x_dis[index])
+            Y_mask = LNFGeneratorTorch._mergenet_func_labels(self._y_mask[index])
+            X_ft = np.concatenate((np.asarray(X_rgb), np.asarray(X_disp)), axis=2)
+            sample = {'image':Image.fromarray(X_ft),
+                      'label':Image.fromarray(np.asarray(Y_mask))}
+            if self.split == 'train':
+                return self.transform_tr_depth(sample)
+            elif self.split == 'val':
+                return self.transform_val_depth(sample)
+            elif self.split == 'test':
+                return self.transform_ts_depth(sample)
 
     # overloads len()
     def __len__(self):
-        return len(self._x_rgb) 
+        return len(self._x_rgb)
 
 
     def _mergenet_feature_tensor_pool(self, rgb_paths, dis_paths):
@@ -367,8 +359,51 @@ class LNFGeneratorTorch(Dataset):
         return something_labels[0]
 
 
-    def transform_tr(self,sample):
+    def transform_exp(self, sample):
+        composed_transforms = transforms.Compose([
+            tr.ToTensor()])
+        return composed_transforms(sample)
 
+
+    # depth transformation
+    def transform_tr_depth(self,sample):
+
+            composed_transforms = transforms.Compose([
+                    tr.RandomHorizontalFlip(),
+                    tr.RandomCrop(crop_size=(512,512)),
+                    tr.NormalizeD(mean=(0.433, 0.469, 0.408, 0.139), std=(0.187,
+                                                                         0.185,
+                                                                         0.178,
+                                                                        0.087)),
+                    tr.ToTensor()
+                    ])
+            return composed_transforms(sample)
+
+    # depth transformation
+    def transform_val_depth(self,sample):
+
+            composed_transforms = transforms.Compose([
+                    tr.RandomHorizontalFlip(),
+                    tr.RandomCrop(crop_size=(512,512)),
+                    tr.NormalizeD(mean=(0.433, 0.469, 0.408, 0.139), std=(0.187,
+                                                                         0.185,
+                                                                         0.178,
+                                                                        0.087)),
+                    tr.ToTensor()
+                    ])
+            return composed_transforms(sample)
+    # depth transformation
+    def transform_ts_depth(self,sample):
+
+            composed_transforms = transforms.Compose([
+                    tr.NormalizeD(mean=(0.433, 0.469, 0.408, 0.139), std=(0.187,
+                                                                         0.185,
+                                                                         0.178,
+                                                                        0.087)),
+                    tr.ToTensor()
+                    ])
+            return composed_transforms(sample)
+    def transform_tr(self,sample):
             composed_transforms = transforms.Compose([
                     tr.RandomHorizontalFlip(),
                     tr.RandomCrop(crop_size=(512,512)),
@@ -376,7 +411,6 @@ class LNFGeneratorTorch(Dataset):
                     tr.ToTensor()
                     ])
             return composed_transforms(sample)
-
     def transform_val(self,sample):
             composed_transforms = transforms.Compose([
                     tr.RandomHorizontalFlip(),

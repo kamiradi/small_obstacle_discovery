@@ -1,4 +1,4 @@
-env3
+env3/
 dataloaders/__pycache__/
 dataloaders/datasets/__pycache__/
 modeling/__pycache__/
@@ -6,3 +6,7 @@ modeling/backbone/__pycache__/
 modeling/sync_batchnorm/__pycache__/
 utils/__pycache__/
 __pycache__/
+pipeouts/
+*.tar
+*.pth
+*.pyc

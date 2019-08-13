@@ -1,6 +1,20 @@
+from PIL import Image
+from matplotlib import cm
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+
+def decode_confidence_map_sequence(confidence_maps):
+    conf_maps = []
+    confidence_maps = confidence_maps.transpose([0, 2, 3, 1])
+    for conf in confidence_maps:
+        conf = conf.reshape(conf.shape[0], conf.shape[1])
+        colored_image = cm.plasma(conf)
+        colored_image = Image.fromarray((colored_image[:, :,
+                                                       :3]*255).astype(np.uint8))
+        conf_maps.append(np.array(colored_image))
+    conf_maps = torch.from_numpy(np.array(conf_maps).transpose([0,3,1,2]))
+    return conf_maps
 
 def decode_seg_map_sequence(label_masks, dataset='pascal'):
     rgb_masks = []

@@ -103,11 +103,13 @@ class DRN(nn.Module):
 
     def __init__(self, block, layers, arch='D',
                  channels=(16, 32, 64, 128, 256, 512, 512, 512),
-                 BatchNorm=None):
+                 BatchNorm=None, depth=False):
         super(DRN, self).__init__()
         self.inplanes = channels[0]
         self.out_dim = channels[-1]
         self.arch = arch
+        print('DRN constr', depth)
+        self.depth = depth
 
         if arch == 'C':
             self.conv1 = nn.Conv2d(3, channels[0], kernel_size=7, stride=1,
@@ -121,12 +123,18 @@ class DRN(nn.Module):
                 BasicBlock, channels[1], layers[1], stride=2, BatchNorm=BatchNorm)
 
         elif arch == 'D':
-            self.layer0 = nn.Sequential(
-                nn.Conv2d(3, channels[0], kernel_size=7, stride=1, padding=3,
-                          bias=False),
-                BatchNorm(channels[0]),
-                nn.ReLU(inplace=True)
-            )
+            if self.depth:
+                self.layer0 = nn.Sequential(
+                    nn.Conv2d(4, channels[0], kernel_size=7, stride=1,
+                              padding=3, bias=False), BatchNorm(channels[0]),
+                    nn.ReLU(inplace=True))
+            else:
+                self.layer0 = nn.Sequential(
+                    nn.Conv2d(3, channels[0], kernel_size=7, stride=1, padding=3,
+                              bias=False),
+                    BatchNorm(channels[0]),
+                    nn.ReLU(inplace=True)
+                )
 
             self.layer1 = self._make_conv_layers(
                 channels[0], layers[0], stride=1, BatchNorm=BatchNorm)
@@ -374,13 +382,18 @@ def drn_d_40(BatchNorm, pretrained=True):
     return model
 
 
-def drn_d_54(BatchNorm, pretrained=True):
-    model = DRN(Bottleneck, [1, 1, 3, 4, 6, 3, 1, 1], arch='D', BatchNorm=BatchNorm)
+def drn_d_54(BatchNorm, pretrained=True, Depth=False):
+    model = DRN(Bottleneck, [1, 1, 3, 4, 6, 3, 1, 1], arch='D',
+                BatchNorm=BatchNorm, depth=Depth)
     if pretrained:
-        pretrained = model_zoo.load_url(model_urls['drn-d-54'])
-        del pretrained['fc.weight']
-        del pretrained['fc.bias']
-        model.load_state_dict(pretrained)
+        if not Depth:
+            pretrained = model_zoo.load_url(model_urls['drn-d-54'])
+            del pretrained['fc.weight']
+            del pretrained['fc.bias']
+            model.load_state_dict(pretrained)
+            return model
+        else:
+            return model
     return model
 
 

@@ -26,6 +26,29 @@ class Normalize(object):
         return {'image': img,
                 'label': mask}
 
+# normalize for the combined rgbd channels
+class NormalizeD(object):
+    """Normalize a tensor image with mean and standard deviation.
+    Args:
+        mean (tuple): means for each channel.
+        std (tuple): standard deviations for each channel.
+    """
+    def __init__(self, mean=(0., 0., 0., 0.), std=(1., 1., 1., 1.)):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, sample):
+        img = sample['image']
+        mask = sample['label']
+        img = np.array(img).astype(np.float32)
+        mask = np.array(mask).astype(np.float32)
+        img /= 255.0
+        img -= self.mean
+        img /= self.std
+
+        return {'image': img,
+                'label': mask}
+
 
 class ToTensor(object):
     """Convert ndarrays in sample to Tensors."""
