@@ -31,6 +31,25 @@ class SegmentationLosses(object):
 
         return loss
 
+    def GaussianCrossEntropyLoss(self, logit, target, dist, weight=None,
+                                 sims=15):
+        n, c, h, w = logit.size()
+        criterion = nn.CrossEntropyLoss(weight)
+        monte_carlo_loss = 0
+        if self.cuda:
+            criterion = criterion.cuda()
+
+        for i in range(sims):
+            sample = dist.sample()
+            sample = torch.reshape(sample,
+                                   (sample.shape[0],1,sample.shape[1],sample.shape[2]))
+            pred_noisy = logit+sample
+            loss = criterion(pred_noisy, target)
+            monte_carlo_loss += loss.item()
+        monte_carlo_loss /= sims
+
+        return monte_carlo_loss
+
     def FocalLoss(self, logit, target, gamma=2, alpha=0.5):
         n, c, h, w = logit.size()
         criterion = nn.CrossEntropyLoss(weight=self.weight, ignore_index=self.ignore_index,

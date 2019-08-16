@@ -1,6 +1,7 @@
 import argparse
 import torch
 from torch.utils.data import DataLoader
+from torch.distributions.normal import Normal
 import os
 import numpy as np
 from tqdm import tqdm
@@ -44,7 +45,7 @@ class Trainer(object):
                     self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[100:],disparity_path=test_disp[100:],
                                           mask_path=test_labels[100:], flag = 'merge', split='test'), batch_size=self.args.batch_size)
                     # Define network
-                    model = DeepLab(num_classes=self.nclass,
+                    model = DeepLab_depth(num_classes=self.nclass,
                                                     backbone=args.backbone,
                                                     output_stride=args.out_stride,
                                                     sync_bn=args.sync_bn,
@@ -157,9 +158,12 @@ class Trainer(object):
 
                         self.scheduler(self.optimizer, i, epoch, self.best_pred)
                         self.optimizer.zero_grad()
-                        output, conf, pre_conf = self.model(image)
-                        pre_conf = 
-                        loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
+                        output, conf = self.model(image)
+                        std = torch.sqrt(conf)
+                        dist = Normal(loc=torch.zeros(conf.shape), scale=std)
+                        pre_conf = nn.Softmax(output, dim=1)
+                        pred_probs = torch.max(pre_conf, dim=1, keepdim=True)[0]
+                        loss = self.criterion.GaussianCrossEntropyLoss(output,target,dist,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
                         loss.backward()
                         self.optimizer.step()
                         train_loss += loss.item()
@@ -174,6 +178,7 @@ class Trainer(object):
                                                                  self.args.dataset,
                                                                  image[:,:3,:,], target,
                                                                  output, conf,
+                                                                 pred_probs,
                                                                  global_step,
                                                                  flag='train')
                                 else:
@@ -181,6 +186,7 @@ class Trainer(object):
                                                                  self.args.dataset,
                                                                  image, target,
                                                                  output, conf,
+                                                                 pred_probs,
                                                                  global_step,
                                                                  flag='train')
 
@@ -245,8 +251,10 @@ class Trainer(object):
                         if self.args.cuda:
                                 image, target = image.cuda(), target.cuda()
                         with torch.no_grad():
-                                output, conf = self.model(image)
+                                output, conf, pre_conf = self.model(image)
                                 print(output.shape)
+                        pre_conf = nn.Softmax(pre_conf, dim=1)
+                        pred_probs = torch.max(pre_conf, dim=1, keepdim=True)[0]
                         loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
                         test_loss += loss.item()
                         tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
@@ -257,6 +265,7 @@ class Trainer(object):
                                                                  self.args.dataset,
                                                                  image, target,
                                                                  output, conf,
+                                                                 pred_probs,
                                                                  global_step,
                                                                  flag=visualize_flag)
                                 else:
@@ -264,6 +273,7 @@ class Trainer(object):
                                                                  self.args.dataset,
                                                                  image[:,:3,:,:], target,
                                                                  output, conf,
+                                                                 pred_probs,
                                                                  global_step,
                                                                  flag=visualize_flag)
 
