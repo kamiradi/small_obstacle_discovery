@@ -26,7 +26,7 @@ class TensorboardSummary(object):
                         pred_probs, global_step,num_image=3, flag='imviz'):
         grid_image = make_grid(decode_confidence_map_sequence(conf[:num_image].detach().cpu().numpy()), num_image,
                               normalize=False, range=(0, 255))
-        writer.add_image(flag+'/Conf', grid_image, global_step)
+        writer.add_image(flag+'/uncertainty', grid_image, global_step)
         grid_image = make_grid(decode_confidence_map_sequence(pred_probs[:num_image].detach().cpu().numpy()),
                  num_image, normalize=False, range=(0,255))
         writer.add_image(flag+'/softmax_probs', grid_image, global_step)

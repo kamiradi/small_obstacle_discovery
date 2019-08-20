@@ -41,11 +41,10 @@ class SegmentationLosses(object):
 
         for i in range(sims):
             sample = dist.sample()
-            sample = torch.reshape(sample,
-                                   (sample.shape[0],1,sample.shape[1],sample.shape[2]))
+            sample=sample.cuda()
             pred_noisy = logit+sample
-            loss = criterion(pred_noisy, target)
-            monte_carlo_loss += loss.item()
+            loss = criterion(pred_noisy, target.type(torch.LongTensor).cuda())
+            monte_carlo_loss += loss
         monte_carlo_loss /= sims
 
         return monte_carlo_loss

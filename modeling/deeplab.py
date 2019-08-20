@@ -20,7 +20,6 @@ class DeepLab_depth(nn.Module):
                 else:
                         BatchNorm = nn.BatchNorm2d
 
-                print("DeepLab constructor:", depth)
                 self.backbone = build_backbone(backbone, output_stride,
                                                BatchNorm, depth)
                 self.aspp = build_aspp(backbone, output_stride, BatchNorm)

@@ -35,6 +35,7 @@ class Decoder_depth(nn.Module):
         # change related to uncertainty
         self.diverge_conv_conf = nn.Conv2d(256, confidence_channels,
                                            kernel_size = 1, stride=1)
+        self.non_neg_relu = nn.ReLU()
         self._init_weight()
 
 
@@ -49,6 +50,8 @@ class Decoder_depth(nn.Module):
         x_pred = self.diverge_conv_pred(x)
         # change related to uncertainty
         conf = self.diverge_conv_conf(x)
+        conf = self.non_neg_relu(conf)
+
 
         return x_pred, conf
 
