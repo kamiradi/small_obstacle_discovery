@@ -455,13 +455,19 @@ class LNFGeneratorTorch(Dataset):
     @staticmethod
     def _context_func_rgb(path):
         im = np.asarray(Image.open(path, 'r'))
-        im_cropped = im[281:793, 128:1920, :]
+        # for lnf
+        # im_cropped = im[281:793, 128:1920, :]
+        # for iiitds
+        im_cropped = im[50:562, 280:1000, :3]
         return im_cropped
 
     @staticmethod
     def _context_func_labels(path):
         im = np.asarray(Image.open(path, 'r'))
-        im_cropped = im[281:793, 128:1920].copy()
+        # for lnf
+        # im_cropped = im[281:793, 128:1920].copy()
+        # for iiitds
+        im_cropped = im[50:562, 280:1000].copy
         im_cropped[im_cropped == 255] = 0
         return im_cropped
 

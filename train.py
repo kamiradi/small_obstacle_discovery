@@ -56,23 +56,26 @@ class Trainer(object):
                     test_imgs, test_labels = HLP.get_ImagesAndLabels_contextnet(Path.db_root_dir(args.dataset),
                                                       data_type='test',
                                                       num_samples=args.num_samples)
-                    self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs,
-                                                              mask_path=train_labels,
-                                                             flag = 'context',
-                                                                         split='train'),
-                                                   batch_size =
-                                                   self.args.batch_size,
-                                                   shuffle=True)
-                    self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[:100],
-                                          mask_path=test_labels[:100], flag =
-                                                            'context',
-                                                                       split='val'),
-                                                 batch_size=self.args.batch_size,
-                                                 shuffle=True)
 
-                    self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[100:],
-                                          mask_path=test_labels[100:], flag =
-                                                                        'context', split='test'), batch_size=self.args.batch_size)
+                    if args.debug:
+                        self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs[:40],
+                                                         mask_path=train_labels[:40],
+                                                                 flag = 'context', split='train'), batch_size = self.args.batch_size, shuffle=True)
+                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[:40],
+                                                         mask_path=test_labels[:40], flag = 'context', split='val'), batch_size=self.args.batch_size, shuffle=True)
+
+                        self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[40:],
+                                              mask_path=test_labels[40:], flag =
+                                                                            'context', split='test'), batch_size=self.args.batch_size)
+                    else:
+                        self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs,
+                                                                  mask_path=train_labels,
+                                                                 flag = 'context', split='train'), batch_size = self.args.batch_size, shuffle=True)
+                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[:100], mask_path=test_labels[:100], flag = 'context', split='val'), batch_size=self.args.batch_size, shuffle=True)
+
+                        self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[100:],
+                                              mask_path=test_labels[100:], flag =
+                                                                            'context', split='test'), batch_size=self.args.batch_size)
                     # Define network
                     model = DeepLab(num_classes=self.nclass,
                                                     backbone=args.backbone,
@@ -157,8 +160,7 @@ class Trainer(object):
 
                         self.scheduler(self.optimizer, i, epoch, self.best_pred)
                         self.optimizer.zero_grad()
-                        output, conf, pre_conf = self.model(image)
-                        pre_conf = 
+                        output = self.model(image)
                         loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
                         loss.backward()
                         self.optimizer.step()
@@ -173,14 +175,14 @@ class Trainer(object):
                                     self.summary.visualize_image(self.writer,
                                                                  self.args.dataset,
                                                                  image[:,:3,:,], target,
-                                                                 output, conf,
+                                                                 output,
                                                                  global_step,
                                                                  flag='train')
                                 else:
                                     self.summary.visualize_image(self.writer,
                                                                  self.args.dataset,
                                                                  image, target,
-                                                                 output, conf,
+                                                                 output,
                                                                  global_step,
                                                                  flag='train')
 
@@ -284,9 +286,12 @@ class Trainer(object):
                 self.writer.add_scalar('metrics/val_acc', Acc, epoch)
                 self.writer.add_scalar('metrics/val_acc_cl', Acc_class, epoch)
                 self.writer.add_scalar('metrics/val_fwIoU', FWIoU, epoch)
-                self.writer.add_scalar('metrics/val_pdr_epoch',recall,epoch)
-                self.writer.add_scalar('metrics/val_precision_epoch',precision,epoch)
-                self.writer.add_scalar('metrics/val_idr_epoch', idr, epoch)
+                if recall is not None:
+                    self.writer.add_scalar('metrics/val_pdr_epoch',recall,epoch)
+                if precision is not None:
+                    self.writer.add_scalar('metrics/val_precision_epoch',precision,epoch)
+                if idr is not None:
+                    self.writer.add_scalar('metrics/val_idr_epoch', idr, epoch)
 
                 print('Validation:')
                 print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
@@ -314,7 +319,9 @@ def main():
         parser.add_argument('--out-stride', type=int, default=16,
                                                 help='network output stride (default: 8)')
         parser.add_argument('--dataset', type=str, default='small_obstacle',
-                                                choices=['pascal', 'coco', 'cityscapes', 'lnf'],
+                                                choices=['pascal', 'coco',
+                                                         'cityscapes', 'lnf',
+                                                         'iiitds'],
                                                 help='dataset name (default: pascal)')
         parser.add_argument('--use-sbd', action='store_true', default=False,
                                                 help='whether to use SBD dataset (default: True)')
@@ -423,7 +430,8 @@ def main():
                         'cityscapes': 0.01,
                         'pascal': 0.007,
                         'small_obstacle': 0.01,
-                        'lnf': 0.01
+                        'lnf': 0.01,
+                        'iiitds': 0.01
                 }
                 args.lr = lrs[args.dataset.lower()] / (4 * len(args.gpu_ids)) * args.batch_size
 
@@ -437,9 +445,14 @@ def main():
 
         if args.mode=="train":
                 for epoch in range(trainer.args.start_epoch, trainer.args.epochs):
-                        trainer.training(epoch)
-                        if not trainer.args.no_val and epoch % args.eval_interval == (args.eval_interval - 1):
-                                trainer.validation(epoch)
+                        if args.debug:
+                            trainer.training(epoch)
+                            trainer.validation(epoch)
+                            break
+                        else:
+                            trainer.training(epoch)
+                            if not trainer.args.no_val and epoch % args.eval_interval == (args.eval_interval - 1):
+                                    trainer.validation(epoch)
 
         elif args.mode=="val" or args.mode=="test":
 

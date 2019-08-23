@@ -41,10 +41,10 @@ class DeepLab(nn.Module):
                                      mode='bilinear', align_corners=True)
 
                 # change related to uncertainty
-                conf = F.sigmoid(conf)
-                x = pre_conf*conf
+                # conf = F.sigmoid(conf)
+                # x = pre_conf*conf
 
-                return x, conf, pre_conf
+                return pre_conf
 
         def freeze_bn(self):
                 for m in self.modules():
