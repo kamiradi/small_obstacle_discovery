@@ -28,13 +28,14 @@ class Decoder(nn.Module):
                                        nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=False),
                                        BatchNorm(256),
                                        nn.ReLU(),
-                                       nn.Dropout(0.1))
+                                       nn.Dropout(0.1),
+                                       nn.Conv2d(256, num_classes,
+                                                 kernel_size=1, stride=1))
 
-        self.diverge_conv_pred = nn.Conv2d(256, num_classes, kernel_size=1, stride=1)
+        # self.diverge_conv_pred = nn.Conv2d(256, num_classes, kernel_size=1, stride=1)
 
         # change related to uncertainty
-        self.diverge_conv_conf = nn.Conv2d(256, confidence_channels,
-                                           kernel_size = 1, stride=1)
+        # self.diverge_conv_conf = nn.Conv2d(256, confidence_channels, kernel_size = 1, stride=1)
         self._init_weight()
 
 
@@ -46,11 +47,8 @@ class Decoder(nn.Module):
         x = F.interpolate(x, size=low_level_feat.size()[2:], mode='bilinear', align_corners=True)
         x = torch.cat((x, low_level_feat), dim=1)
         x = self.last_conv(x)
-        x_pred = self.diverge_conv_pred(x)
-        # change related to uncertainty
-        conf = self.diverge_conv_conf(x)
 
-        return x_pred, conf
+        return x
 
     def _init_weight(self):
         for m in self.modules():

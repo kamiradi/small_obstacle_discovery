@@ -1,7 +1,9 @@
+from termcolor import colored
 import argparse
 import torch
 from torch.utils.data import DataLoader
 import os
+# os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 import numpy as np
 from tqdm import tqdm
 from mypath import Path
@@ -51,10 +53,10 @@ class Trainer(object):
                                                     freeze_bn=args.freeze_bn,
                                     depth=args.depth)
                 else:
-                    train_imgs, train_labels = HLP.get_ImagesAndLabels_contextnet(Path.db_root_dir(args.dataset),
+                    train_imgs, train_labels, _= HLP.get_iiitds_imagesAndLabels(Path.db_root_dir(args.dataset),
                                                        num_samples=args.num_samples)
-                    test_imgs, test_labels = HLP.get_ImagesAndLabels_contextnet(Path.db_root_dir(args.dataset),
-                                                      data_type='test',
+                    test_imgs, test_labels, _ = HLP.get_iiitds_imagesAndLabels(Path.db_root_dir(args.dataset),
+                                                      data_type='val',
                                                       num_samples=args.num_samples)
 
                     if args.debug:
@@ -114,7 +116,7 @@ class Trainer(object):
                                                                                         args.epochs, len(self.train_loader))
 
                 # write the graph
-                tensor = torch.zeros([2, 4, 512, 512])
+                tensor = torch.zeros([2, 3, 512, 720])
                 self.writer.add_graph(model, tensor)
 
                 # Using cuda
@@ -160,7 +162,10 @@ class Trainer(object):
 
                         self.scheduler(self.optimizer, i, epoch, self.best_pred)
                         self.optimizer.zero_grad()
+                        print(colored("DEBUG/ image shape: {}".format(image.shape), 'cyan'))
+                        print(colored("DEBUG/ target shape: {}".format(target.shape), 'cyan'))
                         output = self.model(image)
+                        print(colored("DEBUG/ output shape: {}".format(output.shape), 'cyan'))
                         loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
                         loss.backward()
                         self.optimizer.step()

@@ -33,12 +33,11 @@ class DeepLab(nn.Module):
                 x, low_level_feat = self.backbone(input)
                 x = self.aspp(x)
                 # change related to uncertainty
-                x, conf = self.decoder(x, low_level_feat)
+                x = self.decoder(x, low_level_feat)
                 pre_conf = F.interpolate(x, size=input.size()[2:], mode='bilinear', align_corners=True)
 
                 # change related to uncertainty
-                conf = F.interpolate(conf, size=input.size()[2:],
-                                     mode='bilinear', align_corners=True)
+                # conf = F.interpolate(conf, size=input.size()[2:], mode='bilinear', align_corners=True)
 
                 # change related to uncertainty
                 # conf = F.sigmoid(conf)

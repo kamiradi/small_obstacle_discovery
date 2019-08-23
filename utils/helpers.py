@@ -208,6 +208,45 @@ def get_ImagesAndLabels_mergenet(path, data_type='train', num_samples=None):
     else:
         return images, disparity, labels
 
+# works for iiit dataset
+def get_iiitds_imagesAndLabels(absolute_path, data_type='train',
+                               depth_type='sparse', num_samples=None):
+
+    label_paths = []
+    image_paths = []
+    sparse_gt_paths = []
+    dense_gt_paths = []
+    if data_type == 'train':
+        folder_path = os.path.join(absolute_path, 'train')
+    elif data_type == 'val':
+        folder_path = os.path.join(absolute_path, 'val')
+    else:
+        raise Exception('invalid type of data')
+    folders = os.listdir(folder_path)
+
+    # for loop to iterate through seq_1, seq_2
+    for folder in folders:
+        if folder == '.DS_Store' or folder == '._.DS_Store':
+            continue
+        sub_folder_path = os.path.join(folder_path, folder)
+        labels = os.path.join(sub_folder_path, 'labels')
+        images = os.path.join(sub_folder_path, 'image')
+        sparse_gt = os.path.join(sub_folder_path, 'depth')
+        dense_gt = os.path.join(sub_folder_path, 'groundTruth')
+        for label in os.listdir(labels):
+            if label == '.DS_Store' or label == '._.DS_Store':
+                continue
+            label_paths.append(os.path.join(labels, label))
+            image_paths.append(os.path.join(images, label))
+            sparse_gt_paths.append(os.path.join(sparse_gt, label))
+            dense_gt_paths.append(os.path.join(dense_gt, label))
+
+
+    if depth_type == 'sparse':
+        return image_paths, sparse_gt_paths, label_paths
+    elif depth_type == 'dense':
+        return image_paths, dense_gt_paths, label_paths 
+
 def generate_additional_stripes(images, disparities, labels, path, width=32, num_stripes=56, stride=9, data_type='train', step_size=32):
     images = list(images)
     disparities = list(disparities)
@@ -406,7 +445,6 @@ class LNFGeneratorTorch(Dataset):
     def transform_tr(self,sample):
             composed_transforms = transforms.Compose([
                     tr.RandomHorizontalFlip(),
-                    tr.RandomCrop(crop_size=(512,512)),
                     tr.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
                     tr.ToTensor()
                     ])
@@ -414,7 +452,6 @@ class LNFGeneratorTorch(Dataset):
     def transform_val(self,sample):
             composed_transforms = transforms.Compose([
                     tr.RandomHorizontalFlip(),
-                    tr.RandomCrop(crop_size=(512,512)),
                     tr.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
                     tr.ToTensor()])
 
@@ -467,7 +504,7 @@ class LNFGeneratorTorch(Dataset):
         # for lnf
         # im_cropped = im[281:793, 128:1920].copy()
         # for iiitds
-        im_cropped = im[50:562, 280:1000].copy
+        im_cropped = im[50:562, 280:1000].copy()
         im_cropped[im_cropped == 255] = 0
         return im_cropped
 
