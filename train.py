@@ -34,9 +34,9 @@ class Trainer(object):
                 # self.train_loader, self.val_loader, self.test_loader, self.nclass = make_data_loader(args, **kwargs) 
                 if args.depth:
                     train_imgs, train_disp, train_labels = HLP.get_iiitds_imagesAndLabels(Path.db_root_dir(args.dataset),
-                                                       num_samples=args.num_samples)
+                                                   depth_type='dense', num_samples=args.num_samples)
                     test_imgs, test_disp, test_labels = HLP.get_iiitds_imagesAndLabels(Path.db_root_dir(args.dataset),
-                                                      data_type='val',
+                                                      data_type='val', depth_type='dense',
                                                       num_samples=args.num_samples)
                     if args.debug:
                         self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs[:60],disparity_path=train_disp[:60],
