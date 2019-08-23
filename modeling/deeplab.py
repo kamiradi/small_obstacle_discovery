@@ -44,7 +44,7 @@ class DeepLab(nn.Module):
                 conf = F.sigmoid(conf)
                 x = pre_conf*conf
 
-                return x, conf, pre_conf
+                return pre_conf, conf
 
         def freeze_bn(self):
                 for m in self.modules():
@@ -72,34 +72,35 @@ class DeepLab(nn.Module):
                                         for p in m[1].parameters():
                                                 if p.requires_grad:
                                                         yield p
-
+def init_weights():
+    model = DeepLab(backbone='drn', output_stride=16,num_classes=3,
+                    depth=True)
+    model.eval()
+    input = torch.rand(1, 4, 512, 512)
+    output = model(input)
+    checkpoint=torch.load('/home/aditya/small_obstacle_ws/Small_Obstacle_Segmentation/deeplab-drn.pth.tar',map_location='cpu')
+    weight_shape=[3,256,1,1]
+    conf_weight_shape=[1,256,1,1]
+    checkpoint['state_dict']['decoder.diverge_conv_pred.weight']=nn.init.kaiming_normal_(torch.empty(weight_shape))
+    checkpoint['state_dict']['decoder.diverge_conv_pred.bias']=nn.init.constant_(torch.empty(weight_shape[0]),0)
+    checkpoint['state_dict']['decoder.diverge_conv_conf.weight']=nn.init.kaiming_normal_(torch.empty(conf_weight_shape))
+    checkpoint['state_dict']['decoder.diverge_conv_conf.bias']=nn.init.constant_(torch.empty(conf_weight_shape[0]),0)
+    del checkpoint['state_dict']['decoder.last_conv.8.weight']
+    del checkpoint['state_dict']['decoder.last_conv.8.bias']
+    f=open("/home/aditya/small_obstacle_ws/Small_Obstacle_Segmentation/deeplab-small_obs-image_input_uncertainty.pth","wb")
+    torch.save(checkpoint,f)
+    f.close()
+    # for i,param in enumerate(checkpoint['state_dict']):
+    #         print(param," shape", checkpoint['state_dict'][param].shape)
+    depth_weight_shape = [16,1,7,7]
+    depth_channel_weights = nn.init.kaiming_normal_(torch.empty(depth_weight_shape))
+    temp = torch.cat((checkpoint['state_dict']['backbone.layer0.0.weight'],
+              depth_channel_weights), 1)
+    print(temp.shape)
+    checkpoint['state_dict']['backbone.layer0.0.weight'] = temp
+    f=open("/home/aditya/small_obstacle_ws/Small_Obstacle_Segmentation/deeplab-small_obs-depth_input_uncertainty.pth","wb")
+    torch.save(checkpoint,f)
+    f.close()
 
 if __name__ == "__main__":
-        model = DeepLab(backbone='drn', output_stride=16,num_classes=3,
-                        depth=True)
-        model.eval()
-        input = torch.rand(1, 4, 512, 512)
-        output = model(input)
-        checkpoint=torch.load('/home/aditya/small_obstacle_ws/Small_Obstacle_Segmentation/deeplab-drn.pth.tar',map_location='cpu')
-        weight_shape=[3,256,1,1]
-        conf_weight_shape=[1,256,1,1]
-        checkpoint['state_dict']['decoder.diverge_conv_pred.weight']=nn.init.kaiming_normal_(torch.empty(weight_shape))
-        checkpoint['state_dict']['decoder.diverge_conv_pred.bias']=nn.init.constant_(torch.empty(weight_shape[0]),0)
-        checkpoint['state_dict']['decoder.diverge_conv_conf.weight']=nn.init.kaiming_normal_(torch.empty(conf_weight_shape))
-        checkpoint['state_dict']['decoder.diverge_conv_conf.bias']=nn.init.constant_(torch.empty(conf_weight_shape[0]),0)
-        del checkpoint['state_dict']['decoder.last_conv.8.weight']
-        del checkpoint['state_dict']['decoder.last_conv.8.bias']
-        f=open("/home/aditya/small_obstacle_ws/Small_Obstacle_Segmentation/deeplab-small_obs-image_input_uncertainty.pth","wb")
-        torch.save(checkpoint,f)
-        f.close()
-        # for i,param in enumerate(checkpoint['state_dict']):
-        #         print(param," shape", checkpoint['state_dict'][param].shape)
-        depth_weight_shape = [16,1,7,7]
-        depth_channel_weights = nn.init.kaiming_normal_(torch.empty(depth_weight_shape))
-        temp = torch.cat((checkpoint['state_dict']['backbone.layer0.0.weight'],
-                  depth_channel_weights), 1)
-        print(temp.shape)
-        checkpoint['state_dict']['backbone.layer0.0.weight'] = temp
-        f=open("/home/aditya/small_obstacle_ws/Small_Obstacle_Segmentation/deeplab-small_obs-depth_input_uncertainty.pth","wb")
-        torch.save(checkpoint,f)
-        f.close()
+    init_weights()

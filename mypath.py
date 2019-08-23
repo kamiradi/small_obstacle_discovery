@@ -13,6 +13,8 @@ class Path(object):
             return '/scratch/ash/data_run/downtown_data_run/'
         elif dataset == 'lnf':
             return '/scratch/adityaRRC/small_obstacle_dataset/'
+        elif dataset == 'iiitds':
+            return '/scratch/adityaRRC/deeplab_data'
         else:
             print('Dataset {} not available.'.format(dataset))
             raise NotImplementedError

@@ -1,3 +1,4 @@
+import cv2
 import colorsys
 from torchvision import transforms
 import pdb
@@ -208,6 +209,45 @@ def get_ImagesAndLabels_mergenet(path, data_type='train', num_samples=None):
     else:
         return images, disparity, labels
 
+def get_iiitds_imagesAndLabels(absolute_path, data_type='train',
+                               depth_type='sparse',
+                               num_samples=None):
+    label_paths = []
+    image_paths = []
+    sparse_gt_paths = []
+    dense_gt_paths = []
+    if data_type == 'train':
+        folder_path = os.path.join(absolute_path, 'train')
+    elif data_type == 'val':
+        folder_path = os.path.join(absolute_path, 'val')
+    else:
+        raise Exception('invalid type of data')
+    folders = os.listdir(folder_path)
+
+    # for loop to iterate through seq_1, seq_2
+    for folder in folders:
+        if folder == '.DS_Store' or folder == '._.DS_Store':
+            continue
+        sub_folder_path = os.path.join(folder_path, folder)
+        labels = os.path.join(sub_folder_path, 'labels')
+        images = os.path.join(sub_folder_path, 'image')
+        sparse_gt = os.path.join(sub_folder_path, 'depth')
+        dense_gt = os.path.join(sub_folder_path, 'groundTruth')
+        for label in os.listdir(labels):
+            if label == '.DS_Store' or label == '._.DS_Store':
+                continue
+            label_paths.append(os.path.join(labels, label))
+            image_paths.append(os.path.join(images, label))
+            sparse_gt_paths.append(os.path.join(sparse_gt, label))
+            dense_gt_paths.append(os.path.join(dense_gt, label))
+
+
+    if depth_type == 'sparse':
+        return image_paths, sparse_gt_paths, label_paths
+    elif depth_type == 'dense':
+        return image_paths, dense_gt_paths, label_paths
+
+
 def generate_additional_stripes(images, disparities, labels, path, width=32, num_stripes=56, stride=9, data_type='train', step_size=32):
     images = list(images)
     disparities = list(disparities)
@@ -240,6 +280,7 @@ def generate_additional_stripes(images, disparities, labels, path, width=32, num
     random.shuffle(result)
     images, disparities, labels = zip(*result)
     return images, disparities, labels
+
 
 # dataset loader for torch
 class LNFGeneratorTorch(Dataset):
@@ -314,8 +355,8 @@ class LNFGeneratorTorch(Dataset):
             X_disp = LNFGeneratorTorch._mergenet_func_disparity(self._x_dis[index])
             Y_mask = LNFGeneratorTorch._mergenet_func_labels(self._y_mask[index])
             X_ft = np.concatenate((np.asarray(X_rgb), np.asarray(X_disp)), axis=2)
-            sample = {'image':Image.fromarray(X_ft),
-                      'label':Image.fromarray(np.asarray(Y_mask))}
+            sample = {'image':X_ft,
+                      'label':np.asarray(Y_mask)}
             if self.split == 'train':
                 return self.transform_tr_depth(sample)
             elif self.split == 'val':
@@ -370,7 +411,6 @@ class LNFGeneratorTorch(Dataset):
 
             composed_transforms = transforms.Compose([
                     tr.RandomHorizontalFlip(),
-                    tr.RandomCrop(crop_size=(512,512)),
                     tr.NormalizeD(mean=(0.433, 0.469, 0.408, 0.139), std=(0.187,
                                                                          0.185,
                                                                          0.178,
@@ -384,7 +424,6 @@ class LNFGeneratorTorch(Dataset):
 
             composed_transforms = transforms.Compose([
                     tr.RandomHorizontalFlip(),
-                    tr.RandomCrop(crop_size=(512,512)),
                     tr.NormalizeD(mean=(0.433, 0.469, 0.408, 0.139), std=(0.187,
                                                                          0.185,
                                                                          0.178,
@@ -430,24 +469,23 @@ class LNFGeneratorTorch(Dataset):
 
     @staticmethod
     def _mergenet_func_rgb(path):
-        im = np.asarray(Image.open(path, 'r'))
-        im_cropped = im[281:793, 128:1920, :]
+        im = np.asarray(Image.open(path, 'r'), dtype=np.float32)
+        # im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+        im_cropped = im[50:562, 280:1000, :3]
         return im_cropped
 
     @staticmethod
     def _mergenet_func_disparity(path):
-        im = np.asarray(Image.open(path, 'r'))
+        im = np.asarray(Image.open(path, 'r'), dtype=np.float32)
         im = im.reshape(im.shape[0], im.shape[1], 1)
-        im_cropped = im[281:793, 128:1920, :]
+        im_cropped = im[50:562, 280:1000, :]
         im_cropped = im_cropped/256
-        im_cropped = np.rint(im_cropped)
-        im_cropped = im_cropped.astype(np.uint8)
         return im_cropped
 
     @staticmethod
     def _mergenet_func_labels(path):
         im = np.asarray(Image.open(path, 'r'))
-        im_cropped = im[281:793, 128:1920].copy()
+        im_cropped = im[50:562, 280:1000].copy()
         im_cropped[im_cropped == 255] = 0
         return im_cropped
 

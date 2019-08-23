@@ -33,16 +33,31 @@ class Trainer(object):
                 print('depth:',args.depth)
                 # self.train_loader, self.val_loader, self.test_loader, self.nclass = make_data_loader(args, **kwargs) 
                 if args.depth:
-                    train_imgs, train_disp, train_labels = HLP.get_ImagesAndLabels_mergenet(Path.db_root_dir(args.dataset),
+                    train_imgs, train_disp, train_labels = HLP.get_iiitds_imagesAndLabels(Path.db_root_dir(args.dataset),
                                                        num_samples=args.num_samples)
-                    test_imgs, test_disp, test_labels = HLP.get_ImagesAndLabels_mergenet(Path.db_root_dir(args.dataset),
-                                                      data_type='test',
+                    test_imgs, test_disp, test_labels = HLP.get_iiitds_imagesAndLabels(Path.db_root_dir(args.dataset),
+                                                      data_type='val',
                                                       num_samples=args.num_samples)
-                    self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs,disparity_path=train_disp, mask_path=train_labels, flag = 'merge', split='train'), batch_size = self.args.batch_size, shuffle=True)
-                    self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[:100],disparity_path=test_disp[:100], mask_path=test_labels[:100], flag = 'merge', split='val'), batch_size=self.args.batch_size, shuffle=True)
+                    if args.debug:
+                        self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs[:60],disparity_path=train_disp[:60],
+                                                         mask_path=train_labels[:60], flag = 'merge', split='train'), batch_size = self.args.batch_size, shuffle=True)
+                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[:60],disparity_path=test_disp[:60],
+                                                         mask_path=test_labels[:60], flag = 'merge', split='val'), batch_size=self.args.batch_size, shuffle=True)
 
-                    self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[100:],disparity_path=test_disp[100:],
-                                          mask_path=test_labels[100:], flag = 'merge', split='test'), batch_size=self.args.batch_size)
+                        self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[20:],disparity_path=test_disp[20:],
+                                              mask_path=test_labels[20:], flag = 'merge', split='test'), batch_size=self.args.batch_size)
+                    else:
+                        self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs,disparity_path=train_disp, mask_path=train_labels, flag = 'merge', split='train'), batch_size = self.args.batch_size, shuffle=True)
+                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[:20],disparity_path=test_disp[:20],
+                                                         mask_path=test_labels[:20],
+                                                                           flag
+                                                                           =
+                                                                           'merge',
+                                                                           split='val'),
+                                                     batch_size=2, shuffle=True)
+
+                        self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[20:],disparity_path=test_disp[20:],
+                                              mask_path=test_labels[20:], flag = 'merge', split='test'), batch_size=self.args.batch_size)
                     # Define network
                     model = DeepLab(num_classes=self.nclass,
                                                     backbone=args.backbone,
@@ -155,10 +170,20 @@ class Trainer(object):
                         if self.args.cuda:
                                 image, target = image.cuda(), target.cuda()
 
+                        # updates learning rate
                         self.scheduler(self.optimizer, i, epoch, self.best_pred)
+
+                        # empties the gradients
                         self.optimizer.zero_grad()
-                        output, conf, pre_conf = self.model(image)
-                        pre_conf = 
+
+                        # forward pass
+                        output, conf = self.model(image)
+
+                        # retrieving the highest softmax probabilities
+                        pre_conf = F.softmax(output, dim=1)
+                        pred_probs = torch.max(pre_conf, dim=1, keepdim=True)[0]
+
+                        # loss estimation
                         loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
                         loss.backward()
                         self.optimizer.step()
@@ -172,8 +197,9 @@ class Trainer(object):
                                 if self.args.depth:
                                     self.summary.visualize_image(self.writer,
                                                                  self.args.dataset,
-                                                                 image[:,:3,:,], target,
-                                                                 output, conf,
+                                                                 image[:,:3,:,:], target,
+                                                                 output,
+                                                                 image[:,3, :, :],
                                                                  global_step,
                                                                  flag='train')
                                 else:
@@ -246,7 +272,6 @@ class Trainer(object):
                                 image, target = image.cuda(), target.cuda()
                         with torch.no_grad():
                                 output, conf = self.model(image)
-                                print(output.shape)
                         loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
                         test_loss += loss.item()
                         tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
@@ -263,7 +288,8 @@ class Trainer(object):
                                     self.summary.visualize_image(self.writer,
                                                                  self.args.dataset,
                                                                  image[:,:3,:,:], target,
-                                                                 output, conf,
+                                                                 output,
+                                                                 image[:,-1,:,:],
                                                                  global_step,
                                                                  flag=visualize_flag)
 
@@ -284,9 +310,12 @@ class Trainer(object):
                 self.writer.add_scalar('metrics/val_acc', Acc, epoch)
                 self.writer.add_scalar('metrics/val_acc_cl', Acc_class, epoch)
                 self.writer.add_scalar('metrics/val_fwIoU', FWIoU, epoch)
-                self.writer.add_scalar('metrics/val_pdr_epoch',recall,epoch)
-                self.writer.add_scalar('metrics/val_precision_epoch',precision,epoch)
-                self.writer.add_scalar('metrics/val_idr_epoch', idr, epoch)
+                if recall is not None:
+                    self.writer.add_scalar('metrics/val_pdr_epoch',recall,epoch)
+                if precision is not None:
+                    self.writer.add_scalar('metrics/val_precision_epoch',precision,epoch)
+                if idr is not None:
+                    self.writer.add_scalar('metrics/val_idr_epoch', idr, epoch)
 
                 print('Validation:')
                 print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
@@ -314,7 +343,9 @@ def main():
         parser.add_argument('--out-stride', type=int, default=16,
                                                 help='network output stride (default: 8)')
         parser.add_argument('--dataset', type=str, default='small_obstacle',
-                                                choices=['pascal', 'coco', 'cityscapes', 'lnf'],
+                                                choices=['pascal', 'coco',
+                                                         'cityscapes', 'lnf',
+                                                         'iiitds'],
                                                 help='dataset name (default: pascal)')
         parser.add_argument('--use-sbd', action='store_true', default=False,
                                                 help='whether to use SBD dataset (default: True)')
@@ -423,7 +454,8 @@ def main():
                         'cityscapes': 0.01,
                         'pascal': 0.007,
                         'small_obstacle': 0.01,
-                        'lnf': 0.01
+                        'lnf': 0.01,
+                        'iiitds': 0.001
                 }
                 args.lr = lrs[args.dataset.lower()] / (4 * len(args.gpu_ids)) * args.batch_size
 
@@ -437,6 +469,10 @@ def main():
 
         if args.mode=="train":
                 for epoch in range(trainer.args.start_epoch, trainer.args.epochs):
+                        if args.debug:
+                            trainer.training(epoch)
+                            trainer.validation(epoch)
+                            break
                         trainer.training(epoch)
                         if not trainer.args.no_val and epoch % args.eval_interval == (args.eval_interval - 1):
                                 trainer.validation(epoch)
