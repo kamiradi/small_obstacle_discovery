@@ -47,6 +47,9 @@ def decode_segmap(label_mask, dataset, plot=False):
     elif dataset == 'lnf':
         n_classes=3
         label_colours=get_small_obs_labels()
+    elif dataset == 'iiitds':
+        n_classes=3
+        label_colours=get_small_obs_labels()
     else:
         raise NotImplementedError
 

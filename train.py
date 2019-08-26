@@ -53,9 +53,9 @@ class Trainer(object):
                                                     freeze_bn=args.freeze_bn,
                                     depth=args.depth)
                 else:
-                    train_imgs, train_labels, _= HLP.get_iiitds_imagesAndLabels(Path.db_root_dir(args.dataset),
+                    train_imgs, _, train_labels= HLP.get_iiitds_imagesAndLabels(Path.db_root_dir(args.dataset),
                                                        num_samples=args.num_samples)
-                    test_imgs, test_labels, _ = HLP.get_iiitds_imagesAndLabels(Path.db_root_dir(args.dataset),
+                    test_imgs, _, test_labels= HLP.get_iiitds_imagesAndLabels(Path.db_root_dir(args.dataset),
                                                       data_type='val',
                                                       num_samples=args.num_samples)
 
@@ -116,8 +116,8 @@ class Trainer(object):
                                                                                         args.epochs, len(self.train_loader))
 
                 # write the graph
-                tensor = torch.zeros([2, 3, 512, 720])
-                self.writer.add_graph(model, tensor)
+                # tensor = torch.ones([2, 3, 512, 720])
+                # self.writer.add_graph(model, tensor)
 
                 # Using cuda
                 if args.cuda:
@@ -150,7 +150,7 @@ class Trainer(object):
                 train_loss = 0.0
                 self.model.train()
                 self.evaluator.reset()
-                tbar = tqdm(self.train_loader, desc='training')
+                tbar = tqdm(self.train_loader)
                 num_img_tr = len(self.train_loader)
                 recall=0.0                      # Just for small obstacle
                 precision=0.0
@@ -162,10 +162,7 @@ class Trainer(object):
 
                         self.scheduler(self.optimizer, i, epoch, self.best_pred)
                         self.optimizer.zero_grad()
-                        print(colored("DEBUG/ image shape: {}".format(image.shape), 'cyan'))
-                        print(colored("DEBUG/ target shape: {}".format(target.shape), 'cyan'))
                         output = self.model(image)
-                        print(colored("DEBUG/ output shape: {}".format(output.shape), 'cyan'))
                         loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
                         loss.backward()
                         self.optimizer.step()
@@ -239,7 +236,7 @@ class Trainer(object):
 
                 self.model.eval()
                 self.evaluator.reset()
-                tbar = tqdm(loader, desc='validation')
+                tbar = tqdm(loader)
 
                 test_loss = 0.0
                 recall=0.0                      # Just for small obstacle
@@ -252,8 +249,7 @@ class Trainer(object):
                         if self.args.cuda:
                                 image, target = image.cuda(), target.cuda()
                         with torch.no_grad():
-                                output, conf = self.model(image)
-                                print(output.shape)
+                                output = self.model(image)
                         loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
                         test_loss += loss.item()
                         tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
@@ -263,7 +259,7 @@ class Trainer(object):
                                     self.summary.visualize_image(self.writer,
                                                                  self.args.dataset,
                                                                  image, target,
-                                                                 output, conf,
+                                                                 output,
                                                                  global_step,
                                                                  flag=visualize_flag)
                                 else:

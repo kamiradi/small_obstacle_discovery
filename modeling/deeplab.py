@@ -32,18 +32,10 @@ class DeepLab(nn.Module):
         def forward(self, input):
                 x, low_level_feat = self.backbone(input)
                 x = self.aspp(x)
-                # change related to uncertainty
                 x = self.decoder(x, low_level_feat)
-                pre_conf = F.interpolate(x, size=input.size()[2:], mode='bilinear', align_corners=True)
+                x = F.interpolate(x, size=input.size()[2:], mode='bilinear', align_corners=True)
 
-                # change related to uncertainty
-                # conf = F.interpolate(conf, size=input.size()[2:], mode='bilinear', align_corners=True)
-
-                # change related to uncertainty
-                # conf = F.sigmoid(conf)
-                # x = pre_conf*conf
-
-                return pre_conf
+                return x
 
         def freeze_bn(self):
                 for m in self.modules():

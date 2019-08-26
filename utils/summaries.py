@@ -22,7 +22,7 @@ class TensorboardSummary(object):
     #     grid_image = make_grid(decode_seg_map_sequence(torch.squeeze(target[:3], 1).detach().cpu().numpy(),
     #                                                    dataset=dataset), 3, normalize=False, range=(0, 255))
     #     writer.add_image(flag+'/Groundtruth label', grid_image, global_step)
-    def visualize_image(self, writer, dataset, image, target, output, conf,
+    def visualize_image(self, writer, dataset, image, target, output,
                         global_step,num_image=3, flag='imviz'):
         # grid_image = make_grid(decode_confidence_map_sequence(conf[:num_image].detach().cpu().numpy()), num_image, normalize=False, range=(0, 255))
         # writer.add_image(flag+'/Conf', grid_image, global_step)
