@@ -73,10 +73,10 @@ class Trainer(object):
                         self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs,
                                                                   mask_path=train_labels,
                                                                  flag = 'context', split='train'), batch_size = self.args.batch_size, shuffle=True)
-                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[:100], mask_path=test_labels[:100], flag = 'context', split='val'), batch_size=self.args.batch_size, shuffle=True)
+                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[:1], mask_path=test_labels[:1], flag = 'context', split='val'), batch_size=self.args.batch_size, shuffle=True)
 
-                        self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[100:],
-                                              mask_path=test_labels[100:], flag =
+                        self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[1:],
+                                              mask_path=test_labels[1:], flag =
                                                                             'context', split='test'), batch_size=self.args.batch_size)
                     # Define network
                     model = DeepLab(num_classes=self.nclass,
