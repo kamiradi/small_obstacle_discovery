@@ -48,16 +48,11 @@ class Trainer(object):
                                               mask_path=test_labels[20:], flag = 'merge', split='test'), batch_size=self.args.batch_size)
                     else:
                         self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs,disparity_path=train_disp, mask_path=train_labels, flag = 'merge', split='train'), batch_size = self.args.batch_size, shuffle=True)
-                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[:20],disparity_path=test_disp[:20],
-                                                         mask_path=test_labels[:20],
-                                                                           flag
-                                                                           =
-                                                                           'merge',
-                                                                           split='val'),
-                                                     batch_size=2, shuffle=True)
+                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[:1],disparity_path=test_disp[:1],
+                                                         mask_path=test_labels[:1], flag = 'merge', split='val'), batch_size=2, shuffle=True)
 
-                        self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[20:],disparity_path=test_disp[20:],
-                                              mask_path=test_labels[20:], flag = 'merge', split='test'), batch_size=self.args.batch_size)
+                        self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[1:],disparity_path=test_disp[1:],
+                                              mask_path=test_labels[1:], flag = 'merge', split='test'), batch_size=self.args.batch_size)
                     # Define network
                     model = DeepLab(num_classes=self.nclass,
                                                     backbone=args.backbone,
