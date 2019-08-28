@@ -24,8 +24,6 @@ class TensorboardSummary(object):
     #                                                    dataset=dataset), 3, normalize=False, range=(0, 255))
     #     writer.add_image(flag+'/Groundtruth label', grid_image, global_step)
     def visualize_image(self, writer, dataset, image, target, output, depth, global_step,num_image=3, flag='imviz'):
-        print(colored("DEBUG/ image shape: {}".format(image.shape), 'cyan'))
-        print(colored("DEBUG/ depth shape: {}".format(depth.shape), 'cyan'))
         grid_image = make_grid(depth[:num_image].clone().cpu().data, num_image,
                                normalize=True)
         writer.add_image(flag+'/Depth', grid_image, global_step)

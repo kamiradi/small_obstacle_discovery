@@ -352,11 +352,12 @@ class LNFGeneratorTorch(Dataset):
 
         elif self.flag == 'merge':
             X_rgb = LNFGeneratorTorch._mergenet_func_rgb(self._x_rgb[index])
-            X_disp = LNFGeneratorTorch._mergenet_func_disparity(self._x_dis[index])
+            X_disp, X_bin_mask = LNFGeneratorTorch._mergenet_func_disparity(self._x_dis[index])
             Y_mask = LNFGeneratorTorch._mergenet_func_labels(self._y_mask[index])
             X_ft = np.concatenate((np.asarray(X_rgb), np.asarray(X_disp)), axis=2)
             sample = {'image':X_ft,
-                      'label':np.asarray(Y_mask)}
+                      'label':np.asarray(Y_mask),
+                      'binary_mask':np.asarray(X_bin_mask)}
             if self.split == 'train':
                 return self.transform_tr_depth(sample)
             elif self.split == 'val':
@@ -480,7 +481,12 @@ class LNFGeneratorTorch(Dataset):
         im = im.reshape(im.shape[0], im.shape[1], 1)
         im_cropped = im[50:562, 280:1000, :]
         im_cropped = im_cropped/256
-        return im_cropped
+        bin_mask = (im_cropped != 0.0)
+        bin_unique = np.unique(bin_mask)
+        unique, frequency = np.unique(im_cropped, return_counts=True)
+        assert np.sum(bin_mask) == np.sum(frequency[1:]), 'sanity check failed, \
+        valid depth values does not match number of non-zero depth values'
+        return im_cropped, bin_mask.reshape(bin_mask.shape[0], bin_mask.shape[1])
 
     @staticmethod
     def _mergenet_func_labels(path):

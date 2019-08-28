@@ -161,9 +161,9 @@ class Trainer(object):
                 precision=0.0
                 idr = 0
                 for i, sample in enumerate(tbar):
-                        image, target = sample['image'], sample['label']
+                        image, target, bin_mask = sample['image'], sample['label'], sample['binary_mask']
                         if self.args.cuda:
-                                image, target = image.cuda(), target.cuda()
+                                image, target, bin_mask = image.cuda(), target.cuda(), bin_mask.cuda()
 
                         # updates learning rate
                         self.scheduler(self.optimizer, i, epoch, self.best_pred)
@@ -179,7 +179,7 @@ class Trainer(object):
                         pred_probs = torch.max(pre_conf, dim=1, keepdim=True)[0]
 
                         # loss estimation
-                        loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
+                        loss = self.criterion.LidarCrossEntropyLoss(output,target, bin_mask,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
                         loss.backward()
                         self.optimizer.step()
                         train_loss += loss.item()
@@ -262,7 +262,7 @@ class Trainer(object):
                 num_itr=len(loader)
 
                 for i, sample in enumerate(tbar):
-                        image, target = sample['image'], sample['label']
+                        image, target, bin_mask = sample['image'], sample['label'], sample['binary_mask']
                         if self.args.cuda:
                                 image, target = image.cuda(), target.cuda()
                         with torch.no_grad():
