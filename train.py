@@ -42,19 +42,6 @@ class Trainer(object):
 		optimizer = torch.optim.SGD(train_params, momentum=args.momentum,
 									weight_decay=args.weight_decay, nesterov=args.nesterov)
 
-		# Define Criterion
-		# whether to use class balanced weights
-		"""
-		if args.use_balanced_weights:
-			classes_weights_path = os.path.join(Path.db_root_dir(args.dataset), args.dataset+'_classes_weights.npy')
-			if os.path.isfile(classes_weights_path):
-				weight = np.load(classes_weights_path)
-			else:
-				weight = calculate_weigths_labels(args.dataset, self.train_loader, self.nclass)
-			weight = torch.from_numpy(weight.astype(np.float32))
-		else:
-			weight = None
-		"""
 		self.criterion = SegmentationLosses(cuda=args.cuda)
 		self.model, self.optimizer = model, optimizer
 
@@ -85,12 +72,12 @@ class Trainer(object):
 			if not args.ft:
 				self.optimizer.load_state_dict(checkpoint['optimizer'])
 			self.best_pred = checkpoint['best_pred']
-			print("=> loaded checkpoint '{}' (epoch {})"
-				  .format(args.resume, checkpoint['epoch']))
+			print("=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']))
 
 		# Clear start epoch if fine-tuning
 		if args.ft:
 			args.start_epoch = 0
+			self.best_pred = 0.0
 
 	def training(self, epoch):
 		train_loss = 0.0
@@ -99,13 +86,17 @@ class Trainer(object):
 		num_img_tr = len(self.train_loader)
 			
 		for i, sample in enumerate(tbar):
-			image, target = sample['image'], sample['label']
+			image,depth,target = sample['image'],sample['depth'],sample['label']
+			depth_mask = depth != 0
+			depth_mask = depth_mask.float()
+
 			if self.args.cuda:
-				image, target = image.cuda(), target.cuda()
+				image,depth,target = image.cuda(),depth.cuda(),target.cuda()
+				depth_mask = depth_mask.cuda()
 
 			self.scheduler(self.optimizer, i, epoch, self.best_pred)
 			self.optimizer.zero_grad()
-			output = self.model(image)
+			output,depth_pred = self.model(image,depth,depth_mask)
 			loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
 			loss.backward()
 			self.optimizer.step()
@@ -113,14 +104,13 @@ class Trainer(object):
 			tbar.set_description('Train loss: %.3f' % (train_loss / (i + 1)))
 			self.writer.add_scalar('train/total_loss_iter', loss.item(), i + num_img_tr * epoch)
 
-			# Show 10 * 3 inference results each epoch
+			# Show 10 * 2 inference results each epoch
 			if i % (num_img_tr // 10) == 0:
 				global_step = i + num_img_tr * epoch
-				self.summary.visualize_image(self.writer, self.args.dataset, image, target, output, global_step)
+				self.summary.visualize_image(self.writer, self.args.dataset, image, depth_pred, target, output,global_step)
 
-		self.writer.add_scalar('train/total_loss_epoch', train_loss, epoch)
-		print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
-		print('Loss: %.3f' % train_loss)
+		self.writer.add_scalar('train/total_loss_epoch', train_loss/num_img_tr, epoch)
+		print('Loss: {}'.format(train_loss/num_img_tr))
 
 		if self.args.no_val:
 			# save checkpoint every epoch
@@ -145,29 +135,36 @@ class Trainer(object):
 		tbar = tqdm(loader, desc='\r')
 
 		test_loss = 0.0
+		idr_epoch = 0.0
 
 		num_itr=len(loader)
 
 		for i, sample in enumerate(tbar):
-			image, target = sample['image'], sample['label']
+			image,depth,target = sample['image'],sample['depth'],sample['label']
+			depth_mask =  depth!=0
+			depth_mask =depth_mask.float()
+
 			if self.args.cuda:
-				image, target = image.cuda(), target.cuda()
+				image,depth,target = image.cuda(),depth.cuda(),target.cuda()
+				depth_mask = depth_mask.cuda()
+
 			with torch.no_grad():
-				output = self.model(image)
+				output,depth_pred = self.model(image,depth,depth_mask)
 			loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
 			test_loss += loss.item()
 			tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
 
-			if self.args.mode=="test":
-				if i % (num_itr // 25) == 0:
-					global_step = i + num_itr * epoch
-					self.summary.visualize_image(self.writer, self.args.dataset, image, target, output, global_step,num_image=1)
+			if i % (num_itr // 50) == 0:
+				global_step = i + num_itr * epoch
+				#TODO:add separate name for val
+				self.summary.visualize_image(self.writer,self.args.dataset, image, depth_pred, target, output, global_step,num_image=1)
 
 			pred = output.data.cpu().numpy()
 			target = target.cpu().numpy()
 			pred = np.argmax(pred, axis=1)
 			# Add batch sample into evaluator
 			self.evaluator.add_batch(target, pred)
+			idr_epoch += self.evaluator.get_idr(pred,target,class_value=2)
 
 		# Fast test during the training
 		Acc = self.evaluator.Pixel_Accuracy()
@@ -175,6 +172,7 @@ class Trainer(object):
 		mIoU = self.evaluator.Mean_Intersection_over_Union()
 		FWIoU = self.evaluator.Frequency_Weighted_Intersection_over_Union()
 		recall,precision=self.evaluator.pdr_metric(class_id=2)
+		idr_epoch = idr_epoch/self.evaluator.idr_count
 
 		self.writer.add_scalar('val/total_loss_epoch', test_loss, epoch)
 		self.writer.add_scalar('val/mIoU', mIoU, epoch)
@@ -183,13 +181,14 @@ class Trainer(object):
 		self.writer.add_scalar('val/fwIoU', FWIoU, epoch)
 		self.writer.add_scalar('Recall/per_epoch',recall,epoch)
 		self.writer.add_scalar('Precision/per_epoch',precision,epoch)
+		self.writer.add_scalar('IDR/per_epoch',idr_epoch,epoch)
 
-		print('Validation:')
-		print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
+		print('Validation Epoch:{}'.format(epoch))
 		print("Acc:{}, Acc_class:{}, mIoU:{}, fwIoU: {}".format(Acc, Acc_class, mIoU, FWIoU))
-		print('Loss: %.3f' % test_loss)
+		print('Loss: {}'.format(test_loss/num_itr))
 		print('Recall/PDR:{}'.format(recall))
 		print('Precision:{}'.format(precision))
+		print('IDR:{}'.format(idr_epoch))
 
 		if self.args.mode=="train":
 			new_pred = mIoU
@@ -213,14 +212,14 @@ def main():
 	parser.add_argument('--backbone', type=str, default='drn',
 						choices=['resnet', 'xception', 'drn', 'mobilenet'],
 						help='backbone name (default: drn)')
-	parser.add_argument('--out-stride', type=int, default=16,
+	parser.add_argument('--out-stride', type=int, default=8,
 						help='network output stride (default: 8)')
 	parser.add_argument('--dataset', type=str, default='small_obstacle',
 						choices=['pascal', 'coco', 'cityscapes'],
 						help='dataset name (default: pascal)')
 	parser.add_argument('--use-sbd', action='store_true', default=False,
 						help='whether to use SBD dataset (default: True)')
-	parser.add_argument('--workers', type=int, default=4,
+	parser.add_argument('--workers', type=int, default=8,
 						metavar='N', help='dataloader threads')
 	parser.add_argument('--base-size', type=int, default=512,
 						help='base image size')
@@ -238,13 +237,13 @@ def main():
 						help='number of epochs to train (default: auto)')
 	parser.add_argument('--start_epoch', type=int, default=0,
 						metavar='N', help='start epochs (default:0)')
-	parser.add_argument('--batch-size', type=int, default=8,
+	parser.add_argument('--batch-size', type=int, default=None,
 						metavar='N', help='input batch size for \
 								training (default: auto)')
 	parser.add_argument('--test-batch-size', type=int, default=None,
 						metavar='N', help='input batch size for \
 								testing (default: auto)')
-	parser.add_argument('--use-balanced-weights', action='store_true', default=True,
+	parser.add_argument('--use-balanced-weights', action='store_true',
 						help='whether to use balanced weights (default: False)')
 	# optimizer params
 	parser.add_argument('--lr', type=float, default=None, metavar='LR',
@@ -261,22 +260,25 @@ def main():
 	# cuda, seed and logging
 	parser.add_argument('--no-cuda', action='store_true', default=
 						False, help='disables CUDA training')
-	parser.add_argument('--gpu-ids', type=str, default='0,1',
+	parser.add_argument('--gpu-ids', type=str, default='0',
 						help='use which gpu to train, must be a \
-						comma-separated list of integers only (default=0,1)')
+						comma-separated list of integers only (default=0)')
 	parser.add_argument('--seed', type=int, default=1, metavar='S',
 						help='random seed (default: 1)')
+
 	# checking point
 	parser.add_argument('--resume', type=str, default=None,
 						help='put the path to resuming file if needed')
 	parser.add_argument('--checkname', type=str, default=None,
 						help='set the checkpoint name')
+
 	# finetuning pre-trained models
-	parser.add_argument('--ft', type=bool, default=True,
+	parser.add_argument('--ft', type=bool, default=False,
 						help='finetuning on a different dataset')
+
 	# evaluation option
-	parser.add_argument('--eval-interval', type=int, default=5,
-						help='evaluuation interval (default: 1)')
+	parser.add_argument('--eval-interval', type=int, default=1,
+						help='evaluuation interval (default: 5)')
 	parser.add_argument('--no-val', type=bool, default=False,
 						help='skip validation during training')
 
@@ -324,6 +326,7 @@ def main():
 
 	if args.checkname is None:
 		args.checkname = 'deeplab-'+str(args.backbone)
+
 	torch.manual_seed(args.seed)
 	trainer = Trainer(args)
 	print('Starting Epoch:', trainer.args.start_epoch)
@@ -345,3 +348,5 @@ def main():
 
 if __name__ == "__main__":
 	main()
+	#TODO:test idr batch implementation
+	#TODO: not saving individual checkpoints why?

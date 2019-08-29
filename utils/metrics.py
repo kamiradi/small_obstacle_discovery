@@ -1,10 +1,11 @@
 import numpy as np
-
+import scipy.ndimage as ndi
 
 class Evaluator(object):
     def __init__(self, num_class):
         self.num_class = num_class
         self.confusion_matrix = np.zeros((self.num_class,)*2)
+        self.idr_count = 0
 
     def Pixel_Accuracy(self):
         Acc = np.diag(self.confusion_matrix).sum() / self.confusion_matrix.sum()
@@ -58,6 +59,34 @@ class Evaluator(object):
         return recall,precision
 
 
+    def get_idr(self, pred, target, class_value, threshold=0.4):
+
+        """Returns Instance Detection Ratio (IDR)
+        for a given class, where class_id = numeric label of that class in segmentation target img
+        Threshold is defined as minimum ratio of pixels between prediction and target above
+        which an instance is defined to have been detected
+        """
+        pred = pred.squeeze()
+        target = target.squeeze()
+
+        pred_mask = pred == class_value
+        target_mask = target == class_value
+        instance_id, instance_num = ndi.label(target_mask)     # Return number of instances of given class present in target image
+        count = 0
+
+        if instance_num == 0:
+            return 0.0
+
+        for id in range(1, instance_num + 1):           # Background is given instance id zero
+            x, y = np.where(instance_id == id)
+            detection_ratio = np.count_nonzero(pred_mask[x, y]) / np.count_nonzero(target_mask[x, y])
+            if detection_ratio >= threshold:
+                count += 1
+
+        idr = float(count / instance_num)
+        self.idr_count += 1
+        return idr
+
 
     def add_batch(self, gt_image, pre_image):
         assert gt_image.shape == pre_image.shape
@@ -74,6 +103,7 @@ class Evaluator(object):
         self.confusion_matrix = np.zeros((self.num_class,) * 2)
         self.gt_labels=[] 
         self.pred_labels=[]
+        self.idr_count = 0
 
 
 

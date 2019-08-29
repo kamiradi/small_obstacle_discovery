@@ -9,7 +9,7 @@ class Saver(object):
 
     def __init__(self, args):
         self.args = args
-        self.directory = os.path.join('/scratch/ash/deeplab_logs/run', args.dataset, args.checkname)
+        self.directory = '/scratch/ash/iiit_logs/run'
         self.runs = sorted(glob.glob(os.path.join(self.directory, 'experiment_*')))
         run_id = int(self.runs[-1].split('_')[-1]) + 1 if self.runs else 0
 

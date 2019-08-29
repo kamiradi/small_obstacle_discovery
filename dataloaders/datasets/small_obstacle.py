@@ -1,6 +1,6 @@
 import os
-import sys
-sys.path.append('/home/ash/deeplab/')
+# import sys
+# sys.path.append('/home/ash/Small-Obs-Project/Small_Obstacle_Segmentation/')
 import numpy as np
 from PIL import Image
 from torch.utils import data
@@ -13,36 +13,30 @@ class SmallObs(data.Dataset):
 
 	NUM_CLASSES = 3
 
-	def __init__(self, args, image_paths, split='train'):
+	def __init__(self, args, file_paths, split='train'):
 
-		self.image_paths=image_paths
+		self.file_paths = file_paths
 		self.split = split
 		self.args = args
-		"""
-		self.images_base = os.path.join(self.root,self.split,'image')
-		self.annotations_base = os.path.join(self.root,self.split,'segmentation')
 		self.class_names = ['off_road','on_road','small_obstacle']
-		self.input_files=sorted(os.listdir(self.images_base))
-
-		if len(self.input_files)==0:
-			raise Exception("No files found in directory: {}".format(self.images_base))
-		else:
-			print("Found %d images" % (len(self.input_files)))
-		"""
 
 	def __len__(self):
-		return len(self.image_paths)
+		return len(self.file_paths)
 
 	def __getitem__(self, index):
 
-		input_path = self.image_paths[index]
-		temp=input_path.split('image')
-		target_path = temp[0] + 'labels' + temp[1]
-		_img = np.asarray(Image.open(input_path))[256:768,:,:3]
-		_target = np.asarray(Image.open(target_path))[256:768,:]
-		_img=Image.fromarray(_img)
-		_target=Image.fromarray(_target)
-		sample={'image':_img,'label':_target}
+		input_path = self.file_paths[index]
+		temp=input_path.split('labels')
+		img_path = temp[0] + 'image' + temp[1]
+		depth_path = temp[0] + 'depth' + temp[1]
+
+		_img = np.array(Image.open(img_path))
+		_depth = np.array(Image.open(depth_path),dtype=np.float)
+		assert np.max(_depth) > 255. , "Found 8 bit depth, 16 bit depth is required"
+		_depth = _depth/256.																# Converts 16 bit uint depth to 0-255 float
+		_target = np.asarray(Image.open(input_path))
+
+		sample={'image':_img,'label':_target,'depth':_depth}
 
 		if self.split == 'train':
 			return self.transform_tr(sample)
@@ -57,25 +51,23 @@ class SmallObs(data.Dataset):
 	def transform_tr(self,sample):
 
 		composed_transforms = transforms.Compose([
+			tr.FixedCrop(x1=0,x2=1280,y1=50,y2=562),
+			tr.RandomCrop(crop_size=(512, 512)),
 			tr.RandomHorizontalFlip(),
-			tr.RandomCrop(crop_size=(512,512)),
-			tr.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+			tr.ColorJitter(jitter=0.2),
 			tr.ToTensor()
 			])
 		return composed_transforms(sample)
 
 	def transform_val(self,sample):
 		composed_transforms = transforms.Compose([
-			tr.RandomHorizontalFlip(),
-			tr.RandomCrop(crop_size=(512,512)),
-			tr.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+			tr.FixedCrop(x1=280, x2=1000, y1=50, y2=562),
 			tr.ToTensor()])
 
 		return composed_transforms(sample)
 
 	def transform_ts(self,sample):
 		composed_transforms = transforms.Compose([
-			tr.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
 			tr.ToTensor()])
 
 		return composed_transforms(sample)
