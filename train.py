@@ -73,7 +73,7 @@ class Trainer(object):
                         self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs,
                                                                   mask_path=train_labels,
                                                                  flag = 'context', split='train'), batch_size = self.args.batch_size, shuffle=True)
-                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[:1], mask_path=test_labels[:1], flag = 'context', split='val'), batch_size=self.args.batch_size, shuffle=True)
+                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs, mask_path=test_labels, flag = 'context', split='val'), batch_size=self.args.batch_size, shuffle=True)
 
                         self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[1:],
                                               mask_path=test_labels[1:], flag =
@@ -432,7 +432,7 @@ def main():
                         'pascal': 0.007,
                         'small_obstacle': 0.01,
                         'lnf': 0.01,
-                        'iiitds': 0.01
+                        'iiitds': 0.001
                 }
                 args.lr = lrs[args.dataset.lower()] / (4 * len(args.gpu_ids)) * args.batch_size
 
