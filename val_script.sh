@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=0 python train.py --resume '/scratch/ash/iiit_logs/run/model_best.pth.tar' --mode val --epochs 1
