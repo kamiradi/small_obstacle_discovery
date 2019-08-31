@@ -9,11 +9,11 @@ class Saver(object):
 
     def __init__(self, args):
         self.args = args
-        self.directory = '/scratch/ash/iiit_logs/run'
-        self.runs = sorted(glob.glob(os.path.join(self.directory, 'experiment_*')))
+        self.directory = '/scratch/ash/iiit_logs/img_lidar_jacked/'
+        self.runs = sorted(glob.glob(os.path.join(self.directory, 'exp_*')))
         run_id = int(self.runs[-1].split('_')[-1]) + 1 if self.runs else 0
 
-        self.experiment_dir = os.path.join(self.directory, 'experiment_{}'.format(str(run_id)))
+        self.experiment_dir = os.path.join(self.directory, 'exp_{}'.format(str(run_id)))
         if not os.path.exists(self.experiment_dir):
             os.makedirs(self.experiment_dir)
 
@@ -30,7 +30,7 @@ class Saver(object):
                 previous_miou = [0.0]
                 for run in self.runs:
                     run_id = run.split('_')[-1]
-                    path = os.path.join(self.directory, 'experiment_{}'.format(str(run_id)), 'best_pred.txt')
+                    path = os.path.join(self.directory, 'exp_{}'.format(str(run_id)), 'best_pred.txt')
                     if os.path.exists(path):
                         with open(path, 'r') as f:
                             miou = float(f.readline())

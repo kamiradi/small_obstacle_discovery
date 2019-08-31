@@ -51,8 +51,9 @@ class TensorboardSummary(object):
         ax3 = fig.add_subplot(413)
         ax3.imshow(target)
         ax4 = fig.add_subplot(414)
-        ax4.imshow(depth,cmap='plasma')
-
+        ax4.imshow(target)
+        x,y = np.where(depth!=0)
+        ax4.scatter(y,x,c='y',s=1)
         writer.add_image(split, figure_to_image(fig), global_step)
         plt.clf()
 

@@ -19,8 +19,7 @@ class SegmentationLosses(object):
 
     def CrossEntropyLoss(self,logit,target,weight):
         n, c, h, w = logit.size()
-        criterion = nn.CrossEntropyLoss(weight=weight,
-                                        size_average=self.size_average)
+        criterion = nn.CrossEntropyLoss(weight=weight,size_average=self.size_average)
         if self.cuda:
             criterion = criterion.cuda()
 
@@ -30,6 +29,30 @@ class SegmentationLosses(object):
             loss /= n
 
         return loss
+
+
+    def LidarCrossEntropyLoss(self, logit, target, depth_mask, weight, weighted_val):
+        seg_mask = (target == 2) | (target == 1)                                      # Mask where specific class(small obstacle) is present
+        seg_mask = seg_mask.float()
+        final_mask = seg_mask*depth_mask
+        neg_final_mask = 1-final_mask
+        criterion = nn.CrossEntropyLoss(weight=weight,reduction='none')
+        if self.cuda:
+            criterion = criterion.cuda()
+
+        l1 = criterion(logit,target.long())
+        l1 = l1*neg_final_mask
+        l1 = torch.mean(l1)
+
+        l2 = criterion(logit,target.long())
+        l2 = l2*final_mask
+        l2 = torch.mean(l2)
+
+        complete_loss = l2*weighted_val + l1*(1-weighted_val)
+        # complete_loss = l2*weighted_val + l1
+
+        return complete_loss,l1,l2
+
 
     def FocalLoss(self, logit, target, gamma=2, alpha=0.5):
         n, c, h, w = logit.size()

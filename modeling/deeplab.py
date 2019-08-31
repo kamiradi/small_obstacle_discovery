@@ -7,7 +7,6 @@ from modeling.sync_batchnorm.batchnorm import SynchronizedBatchNorm2d
 from modeling.aspp import build_aspp
 from modeling.decoder import build_decoder
 from modeling.backbone import build_backbone
-from modeling.unguided_network import build_depth_backbone
 
 class DeepLab(nn.Module):
 	def __init__(self, backbone='resnet', output_stride=16, num_classes=21,sync_bn=True, freeze_bn=False):
@@ -23,19 +22,17 @@ class DeepLab(nn.Module):
 		self.backbone = build_backbone(backbone, output_stride, BatchNorm)
 		self.aspp = build_aspp(backbone, output_stride, BatchNorm)
 		self.decoder = build_decoder(num_classes, backbone, BatchNorm)
-		self.depth_backbone = build_depth_backbone(pretrained=True)
 
 		if freeze_bn:
 			self.freeze_bn()
 
 	def forward(self,input,depth,depth_mask):
-		d_out,d_conf = self.depth_backbone(depth,depth_mask)
-		input = torch.cat((input,d_out,d_conf),dim=1)
+		input = torch.cat((input,depth,depth_mask),dim=1)
 		x, low_level_feat = self.backbone(input)
 		x = self.aspp(x)
 		x = self.decoder(x, low_level_feat)
 		x = F.interpolate(x, size=input.size()[2:], mode='bilinear', align_corners=True)
-		return x,d_out
+		return x
 
 	def freeze_bn(self):
 		for m in self.modules():
@@ -72,13 +69,12 @@ if __name__ == "__main__":
 	from torchsummary import summary
 
 	model = DeepLab(backbone='drn', output_stride=16,num_classes=3)
-	model = model.cuda()
 	model.train()
-	image = torch.rand(2, 3, 512, 512).cuda()
-	depth = torch.rand(2,1,512,512).cuda()
+	image = torch.rand(2, 3, 512, 512)
+	depth = torch.rand(2,1,512,512)
 	depth_mask = depth!=0
-	depth_mask = depth_mask.float().cuda()
-	checkpoint=torch.load('/home/ash/Small-Obs-Project/deeplab_checkpoints/deeplab_5_channel.pth')
+	depth_mask = depth_mask.float()
+	checkpoint=torch.load('/home/ash/Small-Obs-Project/deeplab_checkpoints/checkpoints/deeplab_5_channel_inp.pth',map_location='cpu')
 	# checkpoint_2 = torch.load('/home/ash/Small-Obs-Project/nconv/workspace/exp_guided_enc_dec/unguided_network_pretrained/CNN_ep0005.pth.tar')
 	# depth_layers = checkpoint_2['net']
 	# new_depth_layers = depth_layers.copy()
@@ -90,9 +86,11 @@ if __name__ == "__main__":
 	# print(new_depth_layers.keys())
 	# checkpoint['state_dict'].update(new_depth_layers)
 	# torch.save(checkpoint,'/home/ash/Small-Obs-Project/deeplab_checkpoints/deeplab_5_channel.pth')
-
+	# print(summary(model,[(3,512,512),(1,512,512),(1,512,512)],batch_size=2))
 	model.load_state_dict(checkpoint['state_dict'])
 	output = model(image,depth,depth_mask)
+	for key in checkpoint['state_dict'].keys():
+		print(key,checkpoint['state_dict'][key].shape)
 	# print(summary(model,[(3,512,512),(1,512,512),(1,512,512)],batch_size=2))
 	# for i,layer in enumerate(checkpoint['state_dict'].keys()):
 	# 	print(i," ",layer," ")

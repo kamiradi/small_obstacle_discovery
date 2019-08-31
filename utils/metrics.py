@@ -99,6 +99,7 @@ class Evaluator(object):
 
         self.confusion_matrix += self._generate_matrix(gt_image, pre_image)
 
+
     def reset(self):
         self.confusion_matrix = np.zeros((self.num_class,) * 2)
         self.gt_labels=[] 

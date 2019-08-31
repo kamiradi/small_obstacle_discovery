@@ -81,6 +81,7 @@ class Trainer(object):
 
     def training(self, epoch):
         train_loss = 0.0
+        small_obs_loss = 0.0
         self.model.train()
         tbar = tqdm(self.train_loader)
         num_img_tr = len(self.train_loader)
@@ -96,22 +97,31 @@ class Trainer(object):
 
             self.scheduler(self.optimizer, i, epoch, self.best_pred)
             self.optimizer.zero_grad()
-            output,depth_pred = self.model(image,depth,depth_mask)
-            loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
+            output = self.model(image,depth,depth_mask)
+            class_weights = torch.from_numpy(calculate_weights_batch(sample, self.nclass).astype(np.float32))
+
+            """Jacked up Loss  here"""
+            # loss = self.criterion.CrossEntropyLoss(output,target,weight=class_weights)
+
+            loss,l1,l2 = self.criterion.LidarCrossEntropyLoss(output,target,depth_mask,
+                                                              weight=class_weights,weighted_val=0.99)
             loss.backward()
             self.optimizer.step()
             train_loss += loss.item()
+            small_obs_loss += l2.item()
+
             tbar.set_description('Train loss: %.3f' % (train_loss / (i + 1)))
             self.writer.add_scalar('train/total_loss_iter', loss.item(), i + num_img_tr * epoch)
 
-            # Plot prediction every 10th iter
-            if i % (num_img_tr // 10) == 0:
+            # Plot prediction every 20th iter
+            if i % (num_img_tr // 20) == 0:
                 global_step = i + num_img_tr * epoch
-                self.summary.vis_grid(self.writer, self.args.dataset, image.clone().cpu().numpy()[0],
-                                      depth_pred.clone().cpu().numpy()[0], target.clone().cpu().numpy()[0],
-                                      output.clone().cpu().numpy()[0], global_step,split="Train")
+                self.summary.vis_grid(self.writer, self.args.dataset, image.clone().data.cpu().numpy()[0],
+                                      depth.clone().data.cpu().numpy()[0], target.clone().data.cpu().numpy()[0],
+                                      np.argmax(output.clone().data.cpu().numpy(),axis=1)[0], global_step,split="Train")
 
         self.writer.add_scalar('train/total_loss_epoch', train_loss/num_img_tr, epoch)
+        self.writer.add_scalar('train/Ratio_loss/epoch',small_obs_loss/train_loss,epoch)
         print('Loss: {}'.format(train_loss/num_img_tr))
 
         if self.args.no_val:
@@ -137,7 +147,9 @@ class Trainer(object):
         tbar = tqdm(loader, desc='\r')
 
         test_loss = 0.0
-        idr_epoch = 0.0
+        small_obs_loss = 0.0
+        idr_thresholds = [0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55]
+        idr_mean_epoch = np.zeros(len(idr_thresholds))
 
         num_itr=len(loader)
 
@@ -151,29 +163,33 @@ class Trainer(object):
                 depth_mask = depth_mask.cuda()
 
             with torch.no_grad():
-                output,depth_pred = self.model(image,depth,depth_mask)
+                output = self.model(image,depth,depth_mask)
 
-            loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
+            class_weights = torch.from_numpy(calculate_weights_batch(sample, self.nclass).astype(np.float32))
+            # loss = self.criterion.CrossEntropyLoss(output,target,weight=class_weights)
+            loss, l1, l2 = self.criterion.LidarCrossEntropyLoss(output, target, depth_mask,
+                                                                weight=class_weights, weighted_val=0.99)
             test_loss += loss.item()
+            small_obs_loss += l2.item()
+
             tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
 
             pred = output.clone().data.cpu().numpy()
             pred = np.argmax(pred, axis=1)
             target = target.clone().data.cpu().numpy()
             image = image.clone().data.cpu().numpy()
-            depth_pred = depth_pred.clone().data.cpu().numpy()
+            depth = depth.clone().data.cpu().numpy()
 
             # Add batch sample into evaluator
             self.evaluator.add_batch(target, pred)
-            idr = self.evaluator.get_idr(pred,target,class_value=2)
+            idr_avg = np.array([self.evaluator.get_idr(pred,target,class_value=2,threshold=value) for value in idr_thresholds])
 
-            if idr < 0.5 and idr > 0:
-                # Visualise validation set for only bad predictions
-                global_step = i + num_itr * epoch
-                self.summary.vis_grid(self.writer, self.args.dataset, image, depth_pred,
+            # Visualise validation set for only bad predictions
+            global_step = i + num_itr * epoch
+            self.summary.vis_grid(self.writer, self.args.dataset, image, depth,
                                       target, pred, global_step,split="Validation")
 
-            idr_epoch += idr
+            idr_mean_epoch += idr_avg
 
         # Fast test during the training
         Acc = self.evaluator.Pixel_Accuracy()
@@ -181,23 +197,26 @@ class Trainer(object):
         mIoU = self.evaluator.Mean_Intersection_over_Union()
         FWIoU = self.evaluator.Frequency_Weighted_Intersection_over_Union()
         recall,precision=self.evaluator.pdr_metric(class_id=2)
-        idr_epoch = idr_epoch/self.evaluator.idr_count
+        idr_mean_epoch = idr_mean_epoch/num_itr
 
-        self.writer.add_scalar('val/total_loss_epoch', test_loss, epoch)
+        self.writer.add_scalar('val/total_loss_epoch', test_loss/num_itr, epoch)
+        self.writer.add_scalar('val/Ratio_loss/epoch',small_obs_loss/test_loss,epoch)
         self.writer.add_scalar('val/mIoU', mIoU, epoch)
-        self.writer.add_scalar('val/Acc', Acc, epoch)
-        self.writer.add_scalar('val/Acc_class', Acc_class, epoch)
-        self.writer.add_scalar('val/fwIoU', FWIoU, epoch)
-        self.writer.add_scalar('Recall/per_epoch',recall,epoch)
-        self.writer.add_scalar('Precision/per_epoch',precision,epoch)
-        self.writer.add_scalar('IDR/per_epoch',idr_epoch,epoch)
+        # self.writer.add_scalar('val/Acc', Acc, epoch)
+        # self.writer.add_scalar('val/Acc_class', Acc_class, epoch)
+        # self.writer.add_scalar('val/fwIoU', FWIoU, epoch)
+        self.writer.add_scalar('val/Recall',recall,epoch)
+        self.writer.add_scalar('val/Precision',precision,epoch)
+        self.writer.add_scalar('IDR/per_epoch(0.20)',idr_mean_epoch[0],epoch)
+        self.writer.add_scalar('IDR/avg_epoch',np.mean(idr_mean_epoch),epoch)
+        self.writer.add_histogram('Prediction_hist',self.evaluator.pred_labels[self.evaluator.gt_labels == 2],epoch)
 
         print('Validation Epoch:{}'.format(epoch))
         print("Acc:{}, Acc_class:{}, mIoU:{}, fwIoU: {}".format(Acc, Acc_class, mIoU, FWIoU))
         print('Loss: {}'.format(test_loss/num_itr))
         print('Recall/PDR:{}'.format(recall))
         print('Precision:{}'.format(precision))
-        print('IDR:{}'.format(idr_epoch))
+        print('IDR:{}'.format(np.mean(idr_mean_epoch)))
 
         if self.args.mode=="train":
             new_pred = mIoU
@@ -359,4 +378,3 @@ if __name__ == "__main__":
     main()
     #TODO:test idr batch implementation
     #TODO: not saving individual checkpoints why?
-    #TODO: visualise prediction on val set where idr is less than 0.5
