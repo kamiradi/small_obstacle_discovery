@@ -105,6 +105,12 @@ class Trainer(object):
 
             loss,l1,l2 = self.criterion.LidarCrossEntropyLoss(output,target,depth_mask,
                                                               weight=class_weights,weighted_val=0.99)
+            # loss = self.criterion.FocalLoss(output,target)
+
+            pred = output.clone().data.cpu()
+            pred_softmax = F.softmax(pred, dim=1).numpy()
+            pred = np.argmax(pred.numpy(),axis=1)
+
             loss.backward()
             self.optimizer.step()
             train_loss += loss.item()
@@ -118,7 +124,7 @@ class Trainer(object):
                 global_step = i + num_img_tr * epoch
                 self.summary.vis_grid(self.writer, self.args.dataset, image.clone().data.cpu().numpy()[0],
                                       depth.clone().data.cpu().numpy()[0], target.clone().data.cpu().numpy()[0],
-                                      np.argmax(output.clone().data.cpu().numpy(),axis=1)[0], global_step,split="Train")
+                                      pred[0],pred_softmax[0],global_step,split="Train")
 
         self.writer.add_scalar('train/total_loss_epoch', train_loss/num_img_tr, epoch)
         self.writer.add_scalar('train/Ratio_loss/epoch',small_obs_loss/train_loss,epoch)
@@ -169,13 +175,16 @@ class Trainer(object):
             # loss = self.criterion.CrossEntropyLoss(output,target,weight=class_weights)
             loss, l1, l2 = self.criterion.LidarCrossEntropyLoss(output, target, depth_mask,
                                                                 weight=class_weights, weighted_val=0.99)
+            # loss = self.criterion.FocalLoss(output, target)
             test_loss += loss.item()
             small_obs_loss += l2.item()
 
             tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
 
-            pred = output.clone().data.cpu().numpy()
-            pred = np.argmax(pred, axis=1)
+            pred = output.clone().data.cpu()
+            pred_softmax = F.softmax(pred,dim=1).numpy()
+            pred = np.argmax(pred.numpy(),axis=1)
+
             target = target.clone().data.cpu().numpy()
             image = image.clone().data.cpu().numpy()
             depth = depth.clone().data.cpu().numpy()
@@ -187,7 +196,7 @@ class Trainer(object):
             # Visualise validation set for only bad predictions
             global_step = i + num_itr * epoch
             self.summary.vis_grid(self.writer, self.args.dataset, image, depth,
-                                      target, pred, global_step,split="Validation")
+                                  target, pred, pred_softmax, global_step,split="Validation")
 
             idr_mean_epoch += idr_avg
 

@@ -31,7 +31,7 @@ class TensorboardSummary(object):
         writer.add_image('Groundtruth label', grid_image, global_step)
 
 
-    def vis_grid(self,writer,dataset,image,depth,target,pred,global_step,split):
+    def vis_grid(self,writer,dataset,image,depth,target,pred,pred_softmax ,global_step,split):
 
         image = image.squeeze()
         image = image.astype(np.uint8)
@@ -39,23 +39,29 @@ class TensorboardSummary(object):
         depth = depth.squeeze()
         depth = (depth - np.min(depth))/(np.max(depth)-np.min(depth))
         target = target.squeeze()
+        seg_mask = target == 2
         target = decode_segmap(target,dataset=dataset)
         pred = pred.squeeze()
+        pred_softmax = np.max(pred_softmax.squeeze(),axis=0)
+        pred_softmax = seg_mask*pred_softmax
         pred = decode_segmap(pred,dataset=dataset).squeeze()
 
-        fig = plt.figure(figsize=(7,20),dpi=150)
-        ax1 = fig.add_subplot(411)
+        fig = plt.figure(figsize=(7,25),dpi=150)
+        ax1 = fig.add_subplot(511)
         ax1.imshow(image)
-        ax2 = fig.add_subplot(412)
+        ax2 = fig.add_subplot(512)
         ax2.imshow(pred)
-        ax3 = fig.add_subplot(413)
+        ax3 = fig.add_subplot(513)
         ax3.imshow(target)
-        ax4 = fig.add_subplot(414)
+        ax4 = fig.add_subplot(514)
         ax4.imshow(target)
         x,y = np.where(depth!=0)
         ax4.scatter(y,x,c='y',s=1)
+        ax5 = fig.add_subplot(515)
+        ax5.imshow(pred_softmax,cmap='plasma')
         writer.add_image(split, figure_to_image(fig), global_step)
         plt.clf()
+
 
     def vis_depth(self,depth):
         norm_depth = [(depth[i]-np.min(depth[i]))/(np.max(depth[i])-np.min(depth[i])) for i in range(depth.shape[0])]
@@ -67,3 +73,5 @@ class TensorboardSummary(object):
         norm_depth = torch.Tensor(norm_depth)
         #TODO: earlier visualisation showed small obs, not visible now. why?
         return norm_depth
+
+
