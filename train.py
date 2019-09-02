@@ -114,7 +114,7 @@ class Trainer(object):
             loss.backward()
             self.optimizer.step()
             train_loss += loss.item()
-            small_obs_loss += l2.item()
+            # small_obs_loss += l2.item()
 
             tbar.set_description('Train loss: %.3f' % (train_loss / (i + 1)))
             self.writer.add_scalar('train/total_loss_iter', loss.item(), i + num_img_tr * epoch)
@@ -127,7 +127,7 @@ class Trainer(object):
                                       pred[0],pred_softmax[0],global_step,split="Train")
 
         self.writer.add_scalar('train/total_loss_epoch', train_loss/num_img_tr, epoch)
-        self.writer.add_scalar('train/Ratio_loss/epoch',small_obs_loss/train_loss,epoch)
+        # self.writer.add_scalar('train/Ratio_loss/epoch',small_obs_loss/train_loss,epoch)
         print('Loss: {}'.format(train_loss/num_img_tr))
 
         if self.args.no_val:
@@ -177,7 +177,7 @@ class Trainer(object):
                                                                 weight=class_weights, weighted_val=0.99)
             # loss = self.criterion.FocalLoss(output, target)
             test_loss += loss.item()
-            small_obs_loss += l2.item()
+            # small_obs_loss += l2.item()
 
             tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
 
@@ -191,6 +191,7 @@ class Trainer(object):
 
             # Add batch sample into evaluator
             self.evaluator.add_batch(target, pred)
+            #TODO: IDR batch code
             idr_avg = np.array([self.evaluator.get_idr(pred,target,class_value=2,threshold=value) for value in idr_thresholds])
 
             # Visualise validation set for only bad predictions
@@ -206,10 +207,11 @@ class Trainer(object):
         mIoU = self.evaluator.Mean_Intersection_over_Union()
         FWIoU = self.evaluator.Frequency_Weighted_Intersection_over_Union()
         recall,precision=self.evaluator.pdr_metric(class_id=2)
-        idr_mean_epoch = idr_mean_epoch/num_itr
+        idr_mean_epoch = idr_mean_epoch/(self.evaluator.idr_count/len(idr_thresholds))
+        print("Image in Val Set with Small-Obs",self.evaluator.idr_count/len(idr_thresholds),num_itr)
 
         self.writer.add_scalar('val/total_loss_epoch', test_loss/num_itr, epoch)
-        self.writer.add_scalar('val/Ratio_loss/epoch',small_obs_loss/test_loss,epoch)
+        # self.writer.add_scalar('val/Ratio_loss/epoch',small_obs_loss/test_loss,epoch)
         self.writer.add_scalar('val/mIoU', mIoU, epoch)
         # self.writer.add_scalar('val/Acc', Acc, epoch)
         # self.writer.add_scalar('val/Acc_class', Acc_class, epoch)

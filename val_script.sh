@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES=1 python train.py --resume '/scratch/ash/iiit_logs/run_image_lidar/exp_0/checkpoint.pth.tar' --mode val --epochs 1
+CUDA_VISIBLE_DEVICES=2 python train.py --resume '/scratch/ash/iiit_logs/img_lidar_jacked_both/model_best.pth.tar' --mode val --epochs 1
