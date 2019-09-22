@@ -6,6 +6,7 @@ from mypath import Path
 from dataloaders import make_data_loader
 from modeling.sync_batchnorm.replicate import patch_replication_callback
 from modeling.deeplab import *
+from utils.gated_crf import GatedCRFLoss
 from utils.loss import SegmentationLosses
 from utils.calculate_weights import calculate_weights_batch
 from utils.lr_scheduler import LR_Scheduler
@@ -42,7 +43,8 @@ class Trainer(object):
         optimizer = torch.optim.SGD(train_params, momentum=args.momentum,
                                     weight_decay=args.weight_decay, nesterov=args.nesterov)
 
-        self.criterion = SegmentationLosses(cuda=args.cuda)
+        self.criterion = GatedCRFLoss(num_classes=3,image_shape=(self.args.batch_size,3,512,512),cuda=args.cuda)
+        self.criterion_2 = SegmentationLosses(cuda=args.cuda)
         self.model, self.optimizer = model, optimizer
 
         # Define Evaluator
@@ -81,7 +83,9 @@ class Trainer(object):
 
     def training(self, epoch):
         train_loss = 0.0
-        small_obs_loss = 0.0
+        loss_1 = 0.0
+        loss_2 = 0.0
+
         self.model.train()
         tbar = tqdm(self.train_loader)
         num_img_tr = len(self.train_loader)
@@ -90,22 +94,21 @@ class Trainer(object):
             image,depth,target = sample['image'],sample['depth'],sample['label']
             depth_mask = depth != 0
             depth_mask = depth_mask.float()
+            dest_map = torch.ones(size=depth_mask.shape).float()
 
             if self.args.cuda:
                 image,depth,target = image.cuda(),depth.cuda(),target.cuda()
                 depth_mask = depth_mask.cuda()
+                dest_map = dest_map.cuda()
 
             self.scheduler(self.optimizer, i, epoch, self.best_pred)
             self.optimizer.zero_grad()
             output = self.model(image,depth,depth_mask)
             class_weights = torch.from_numpy(calculate_weights_batch(sample, self.nclass).astype(np.float32))
-
-            """Jacked up Loss  here"""
-            # loss = self.criterion.CrossEntropyLoss(output,target,weight=class_weights)
-
-            loss,l1,l2 = self.criterion.LidarCrossEntropyLoss(output,target,depth_mask,
-                                                              weight=class_weights,weighted_val=0.99)
-            # loss = self.criterion.FocalLoss(output,target)
+            print(dest_map.shape,depth_mask.shape)
+            cross_entrop_loss = self.criterion_2.CrossEntropyLoss(output,target,weight=class_weights)
+            # gatedCRF_loss = self.criterion.gatedCRFLoss(output,target,image,weight=class_weights,source_map=dest_map,destination_map=depth_mask)
+            loss = cross_entrop_loss
 
             pred = output.clone().data.cpu()
             pred_softmax = F.softmax(pred, dim=1).numpy()
@@ -114,7 +117,8 @@ class Trainer(object):
             loss.backward()
             self.optimizer.step()
             train_loss += loss.item()
-            # small_obs_loss += l2.item()
+            # loss_1 += cross_entrop_loss.item()
+            # loss_2 += gatedCRF_loss.item()
 
             tbar.set_description('Train loss: %.3f' % (train_loss / (i + 1)))
             self.writer.add_scalar('train/total_loss_iter', loss.item(), i + num_img_tr * epoch)
@@ -127,7 +131,8 @@ class Trainer(object):
                                       pred[0],pred_softmax[0],global_step,split="Train")
 
         self.writer.add_scalar('train/total_loss_epoch', train_loss/num_img_tr, epoch)
-        # self.writer.add_scalar('train/Ratio_loss/epoch',small_obs_loss/train_loss,epoch)
+        # self.writer.add_scalar('train/Cross_Entropy_loss',loss_1/num_img_tr,epoch)
+        # self.writer.add_scalar('train/GatedCRF_Loss',loss_2/num_img_tr,epoch)
         print('Loss: {}'.format(train_loss/num_img_tr))
 
         if self.args.no_val:
@@ -153,7 +158,9 @@ class Trainer(object):
         tbar = tqdm(loader, desc='\r')
 
         test_loss = 0.0
-        small_obs_loss = 0.0
+        t_loss_1 = 0.0
+        t_loss_2 = 0.0
+
         idr_thresholds = [0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55]
         idr_mean_epoch = np.zeros(len(idr_thresholds))
 
@@ -163,21 +170,25 @@ class Trainer(object):
             image,depth,target = sample['image'],sample['depth'],sample['label']
             depth_mask =  depth!=0
             depth_mask =depth_mask.float()
+            dest_map = torch.ones(size=depth_mask.shape).float()
 
             if self.args.cuda:
                 image,depth,target = image.cuda(),depth.cuda(),target.cuda()
                 depth_mask = depth_mask.cuda()
+                dest_map = dest_map.cuda()
 
             with torch.no_grad():
                 output = self.model(image,depth,depth_mask)
 
             class_weights = torch.from_numpy(calculate_weights_batch(sample, self.nclass).astype(np.float32))
-            # loss = self.criterion.CrossEntropyLoss(output,target,weight=class_weights)
-            loss, l1, l2 = self.criterion.LidarCrossEntropyLoss(output, target, depth_mask,
-                                                                weight=class_weights, weighted_val=0.99)
-            # loss = self.criterion.FocalLoss(output, target)
+            # cross_entrop_loss = self.criterion_2.CrossEntropyLoss(output, target, weight=class_weights)
+            gatedCRF_loss = self.criterion.gatedCRFLoss(output, target, image, weight=class_weights, source_map=dest_map,
+                                                        destination_map=depth_mask)
+
+            loss = gatedCRF_loss
             test_loss += loss.item()
-            # small_obs_loss += l2.item()
+            # t_loss_1 += cross_entrop_loss.item()
+            # t_loss_2 += gatedCRF_loss.item()
 
             tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
 
@@ -211,11 +222,10 @@ class Trainer(object):
         print("Image in Val Set with Small-Obs",self.evaluator.idr_count/len(idr_thresholds),num_itr)
 
         self.writer.add_scalar('val/total_loss_epoch', test_loss/num_itr, epoch)
-        # self.writer.add_scalar('val/Ratio_loss/epoch',small_obs_loss/test_loss,epoch)
+        # self.writer.add_scalar('val/Cross_Entropy_loss',t_loss_1/num_itr,epoch)
+        # self.writer.add_scalar('val/GatedCRF_Loss',t_loss_2/num_itr,epoch)
+
         self.writer.add_scalar('val/mIoU', mIoU, epoch)
-        # self.writer.add_scalar('val/Acc', Acc, epoch)
-        # self.writer.add_scalar('val/Acc_class', Acc_class, epoch)
-        # self.writer.add_scalar('val/fwIoU', FWIoU, epoch)
         self.writer.add_scalar('val/Recall',recall,epoch)
         self.writer.add_scalar('val/Precision',precision,epoch)
         self.writer.add_scalar('IDR/per_epoch(0.20)',idr_mean_epoch[0],epoch)
@@ -337,6 +347,7 @@ def main():
         else:
             args.sync_bn = False
 
+    print("Sync Batchnorm status ", args.sync_bn)
     # default settings for epochs, batch_size and lr
     if args.epochs is None:
         epoches = {
@@ -388,4 +399,3 @@ def main():
 if __name__ == "__main__":
     main()
     #TODO:test idr batch implementation
-    #TODO: not saving individual checkpoints why?

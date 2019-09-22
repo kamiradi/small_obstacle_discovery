@@ -9,7 +9,7 @@ class Saver(object):
 
     def __init__(self, args):
         self.args = args
-        self.directory = '/scratch/ash/iiit_logs/img_lidar_jacked_both/'
+        self.directory = '/scratch/ash/iiit_logs/img_lidar_gatedCRF/'
         self.runs = sorted(glob.glob(os.path.join(self.directory, 'exp_*')))
         run_id = int(self.runs[-1].split('_')[-1]) + 1 if self.runs else 0
 

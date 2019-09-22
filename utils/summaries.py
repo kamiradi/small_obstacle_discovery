@@ -71,7 +71,4 @@ class TensorboardSummary(object):
         norm_depth = norm_depth.squeeze()
         norm_depth = norm_depth[:,:3,:,:]
         norm_depth = torch.Tensor(norm_depth)
-        #TODO: earlier visualisation showed small obs, not visible now. why?
         return norm_depth
-
-
