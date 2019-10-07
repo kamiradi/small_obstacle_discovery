@@ -10,3 +10,4 @@ pipeouts/
 *.tar
 *.pth
 *.pyc
+*.swp

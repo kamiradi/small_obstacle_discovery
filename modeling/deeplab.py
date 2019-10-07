@@ -102,5 +102,20 @@ def init_weights():
     torch.save(checkpoint,f)
     f.close()
 
+def init_weights_5ch():
+    model = DeepLab(backbone='drn', output_stride=16,num_classes=3,
+                    depth=True)
+    model.eval()
+    checkpoint = torch.load("/home/aditya/small_obstacle_ws/Small_Obstacle_Segmentation/deeplab-small_obs-depth_input_uncertainty.pth")
+    binary_mask_shape = [16, 1, 7, 7]
+    binary_channel_weights = nn.init.kaiming_normal_(torch.empty(binary_mask_shape))
+    temp = torch.cat((checkpoint['state_dict']['backbone.layer0.0.weight'],
+                      binary_channel_weights), 1)
+    checkpoint['state_dict']['backbone.layer0.0.weight'] = temp
+    f=open('/home/aditya/small_obstacle_ws/SmallObstacle_Segmentation/deeplab-small_obs_depth_5_ch.pth',
+           'wb')
+    torch.save(checkpoint, f)
+    f.close()
+
 if __name__ == "__main__":
-    init_weights()
+    init_weights_5ch()

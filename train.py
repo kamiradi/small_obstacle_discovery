@@ -1,3 +1,4 @@
+from fastai.utils.mem import GPUMemTrace
 import argparse
 import torch
 from torch.utils.data import DataLoader
@@ -8,7 +9,7 @@ from mypath import Path
 from dataloaders import make_data_loader
 from modeling.sync_batchnorm.replicate import patch_replication_callback
 from modeling.deeplab import *
-from utils.loss import SegmentationLosses
+from utils.loss import SegmentationLosses, GatedCRFLoss
 from utils.calculate_weights import calculate_weights_batch
 from utils.lr_scheduler import LR_Scheduler
 from utils.saver import Saver
@@ -39,13 +40,12 @@ class Trainer(object):
                                                       data_type='val',
                                                       num_samples=args.num_samples)
                     if args.debug:
-                        self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs[:60],disparity_path=train_disp[:60],
-                                                         mask_path=train_labels[:60], flag = 'merge', split='train'), batch_size = self.args.batch_size, shuffle=True)
-                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[:60],disparity_path=test_disp[:60],
-                                                         mask_path=test_labels[:60], flag = 'merge', split='val'), batch_size=self.args.batch_size, shuffle=True)
+                        self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs,disparity_path=train_disp, mask_path=train_labels, flag = 'merge', split='train'), batch_size = self.args.batch_size, shuffle=True)
+                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs,disparity_path=test_disp,
+                                                         mask_path=test_labels, flag = 'merge', split='val'), batch_size=self.args.batch_size, shuffle=True)
 
-                        self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[20:],disparity_path=test_disp[20:],
-                                              mask_path=test_labels[20:], flag = 'merge', split='test'), batch_size=self.args.batch_size)
+                        self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs,disparity_path=test_disp,
+                                              mask_path=test_labels, flag = 'merge', split='test'), batch_size=self.args.batch_size)
                     else:
                         self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs,disparity_path=train_disp, mask_path=train_labels, flag = 'merge', split='train'), batch_size = self.args.batch_size, shuffle=True)
                         self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs,disparity_path=test_disp,
@@ -111,7 +111,9 @@ class Trainer(object):
                 else:
                         weight = None
                 """
-                self.criterion = SegmentationLosses(cuda=args.cuda)
+                self.criterion = GatedCRFLoss(num_classes=3,
+                                              image_shape=(args.batch_size, 4,
+                                                           512, 720), cuda=args.cuda)
                 self.model, self.optimizer = model, optimizer
 
                 # Define Evaluator
@@ -152,7 +154,14 @@ class Trainer(object):
                         args.start_epoch = 0
 
         def training(self, epoch):
+            try:
                 train_loss = 0.0
+                if os.path.isfile('kill.me'):
+                    num_gpus = orch.cuda.device_count()
+                    for gpu_id in range(num_gpus):
+                        torch.cuda.set_device(gpu_id)
+                        torch.cuda.empty_cache()
+                    exit(0)
                 self.model.train()
                 self.evaluator.reset()
                 tbar = tqdm(self.train_loader, desc='training')
@@ -179,7 +188,15 @@ class Trainer(object):
                         pred_probs = torch.max(pre_conf, dim=1, keepdim=True)[0]
 
                         # loss estimation
-                        loss = self.criterion.LidarCrossEntropyLoss(output,target, bin_mask,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
+                        loss = self.criterion.gatedCRFLoss(output, target, image,
+                                                           destination_map=bin_mask.view((bin_mask.shape[0],
+                                                                                     1,
+                                                                                     bin_mask.shape[1],
+                                                                                     bin_mask.shape[2])),
+                                                           source_map=torch.ones((self.args.batch_size,
+                                                                                       1,
+                                                                                       512,
+                                                                                      720), dtype=torch.float).cuda())
                         loss.backward()
                         self.optimizer.step()
                         train_loss += loss.item()
@@ -241,9 +258,19 @@ class Trainer(object):
                                 'best_pred': self.best_pred,
                         }, is_best)
 
+            except Exception as message:
+                print('Damn!!! {}'.format(message))
+                exit(0)
+
 
         def validation(self, epoch):
 
+                if os.path.isfile('kill.me'):
+                    num_gpus = orch.cuda.device_count()
+                    for gpu_id in range(num_gpus):
+                        torch.cuda.set_device(gpu_id)
+                        torch.cuda.empty_cache()
+                    exit(0)
                 if self.args.mode=="train" or self.args.mode=="val":
                         loader=self.val_loader
                         visualize_flag = 'val'
@@ -264,10 +291,19 @@ class Trainer(object):
                 for i, sample in enumerate(tbar):
                         image, target, bin_mask = sample['image'], sample['label'], sample['binary_mask']
                         if self.args.cuda:
-                                image, target = image.cuda(), target.cuda()
+                                image, target, bin_mask = image.cuda(), target.cuda(), bin_mask.cuda()
                         with torch.no_grad():
                                 output, conf = self.model(image)
-                        loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
+                        # loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
+                        loss = self.criterion.gatedCRFLoss(output, target, image,
+                                                           destination_map=bin_mask.view((bin_mask.shape[0],
+                                                                                     1,
+                                                                                     bin_mask.shape[1],
+                                                                                     bin_mask.shape[2])),
+                                                           source_map=torch.ones((self.args.batch_size,
+                                                                                       1,
+                                                                                       512,
+                                                                                      720), dtype=torch.float).cuda())
                         test_loss += loss.item()
                         tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
                         if i % (num_itr // 5) == 0:
@@ -467,7 +503,6 @@ def main():
                         if args.debug:
                             trainer.training(epoch)
                             trainer.validation(epoch)
-                            break
                         trainer.training(epoch)
                         if not trainer.args.no_val and epoch % args.eval_interval == (args.eval_interval - 1):
                                 trainer.validation(epoch)
@@ -479,6 +514,8 @@ def main():
                         trainer.validation(epoch)
                         break
 
+        if args.debug:
+            print(colored('Debug session done!!', 'yellow'))
         trainer.writer.close()
 
 if __name__ == "__main__":
