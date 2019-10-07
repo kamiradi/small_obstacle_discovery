@@ -68,23 +68,28 @@ class Evaluator(object):
         """
         pred = pred.squeeze()
         target = target.squeeze()
+        idr = []
+        idr_count = 0
+        for num in range(target.shape[0]):
+            pred_mask = pred[num] == class_value
+            target_mask = target[num] == class_value
+            instance_id, instance_num = ndi.label(target_mask)  # Return number of instances of given class present in target image
+            count = 0
 
-        pred_mask = pred == class_value
-        target_mask = target == class_value
-        instance_id, instance_num = ndi.label(target_mask)     # Return number of instances of given class present in target image
-        count = 0
+            if instance_num == 0:
+                idr.append(0.0)
 
-        if instance_num == 0:
-            return 0.0
+            else:
+                for id in range(1, instance_num + 1):       # Background is given instance id zero
+                    x, y = np.where(instance_id == id)
+                    detection_ratio = np.count_nonzero(pred_mask[x, y]) / np.count_nonzero(target_mask[x, y])
+                    if detection_ratio >= threshold:
+                        count += 1
 
-        for id in range(1, instance_num + 1):           # Background is given instance id zero
-            x, y = np.where(instance_id == id)
-            detection_ratio = np.count_nonzero(pred_mask[x, y]) / np.count_nonzero(target_mask[x, y])
-            if detection_ratio >= threshold:
-                count += 1
+                idr.append(float(count / instance_num))
+                idr_count += 1
 
-        idr = float(count / instance_num)
-        self.idr_count += 1
+        idr = np.sum(idr)/idr_count
         return idr
 
 

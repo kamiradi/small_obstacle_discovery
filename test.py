@@ -26,8 +26,13 @@ from matplotlib import pyplot as plt
 
 # plt.plot(bins,n)
 # plt.show()
-torch.manual_seed(100)
-a = torch.randint(low=0,high=2,size=(4,512,512)).float()
-b = torch.randint(low=0,high=2,size=(4,512,512)).float()
-c = a*b
-print(torch.mean(c))
+# torch.manual_seed(100)
+# a = torch.randint(low=0,high=2,size=(4,512,512)).float()
+# b = torch.randint(low=0,high=2,size=(4,512,512)).float()
+# c = a*b
+# print(torch.mean(c))
+
+def test_args(*targets):
+    print(type(targets))
+
+test_args(np.zeros((2,2)),1)

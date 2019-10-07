@@ -7,12 +7,14 @@ from dataloaders import make_data_loader
 from modeling.sync_batchnorm.replicate import patch_replication_callback
 from modeling.deeplab import *
 from utils.gated_crf import GatedCRFLoss
+import utils.misc as misc
 from utils.loss import SegmentationLosses
 from utils.calculate_weights import calculate_weights_batch
 from utils.lr_scheduler import LR_Scheduler
 from utils.saver import Saver
 from utils.summaries import TensorboardSummary
 from utils.metrics import Evaluator
+from utils.dataparallel import DataParallelCriterion,DataParallelModel
 
 class Trainer(object):
     def __init__(self, args):
@@ -43,8 +45,7 @@ class Trainer(object):
         optimizer = torch.optim.SGD(train_params, momentum=args.momentum,
                                     weight_decay=args.weight_decay, nesterov=args.nesterov)
 
-        self.criterion = GatedCRFLoss(num_classes=3,image_shape=(self.args.batch_size,3,512,512),cuda=args.cuda)
-        self.criterion_2 = SegmentationLosses(cuda=args.cuda)
+        self.criterion = GatedCRFLoss(num_classes=3,cuda=self.args.cuda)
         self.model, self.optimizer = model, optimizer
 
         # Define Evaluator
@@ -94,21 +95,20 @@ class Trainer(object):
             image,depth,target = sample['image'],sample['depth'],sample['label']
             depth_mask = depth != 0
             depth_mask = depth_mask.float()
-            dest_map = torch.ones(size=depth_mask.shape).float()
+            src_map = torch.ones(size=depth_mask.shape).float()
 
             if self.args.cuda:
                 image,depth,target = image.cuda(),depth.cuda(),target.cuda()
                 depth_mask = depth_mask.cuda()
-                dest_map = dest_map.cuda()
+                src_map = src_map.cuda()
 
             self.scheduler(self.optimizer, i, epoch, self.best_pred)
             self.optimizer.zero_grad()
             output = self.model(image,depth,depth_mask)
             class_weights = torch.from_numpy(calculate_weights_batch(sample, self.nclass).astype(np.float32))
-            print(dest_map.shape,depth_mask.shape)
-            cross_entrop_loss = self.criterion_2.CrossEntropyLoss(output,target,weight=class_weights)
-            # gatedCRF_loss = self.criterion.gatedCRFLoss(output,target,image,weight=class_weights,source_map=dest_map,destination_map=depth_mask)
-            loss = cross_entrop_loss
+            # cross_entrop_loss = self.criterion_2.CrossEntropyLoss(output,target,weight=class_weights)
+            ce_loss,gcrf_loss = self.criterion(output,target,image,depth,weight=class_weights,source_map=src_map,destination_map=depth_mask)
+            loss = ce_loss + gcrf_loss
 
             pred = output.clone().data.cpu()
             pred_softmax = F.softmax(pred, dim=1).numpy()
@@ -117,22 +117,22 @@ class Trainer(object):
             loss.backward()
             self.optimizer.step()
             train_loss += loss.item()
-            # loss_1 += cross_entrop_loss.item()
-            # loss_2 += gatedCRF_loss.item()
+            loss_1 += ce_loss.item()
+            loss_2 += gcrf_loss.item()
 
             tbar.set_description('Train loss: %.3f' % (train_loss / (i + 1)))
             self.writer.add_scalar('train/total_loss_iter', loss.item(), i + num_img_tr * epoch)
 
             # Plot prediction every 20th iter
-            if i % (num_img_tr // 20) == 0:
+            if i % (num_img_tr // 10) == 0:
                 global_step = i + num_img_tr * epoch
                 self.summary.vis_grid(self.writer, self.args.dataset, image.clone().data.cpu().numpy()[0],
                                       depth.clone().data.cpu().numpy()[0], target.clone().data.cpu().numpy()[0],
                                       pred[0],pred_softmax[0],global_step,split="Train")
 
         self.writer.add_scalar('train/total_loss_epoch', train_loss/num_img_tr, epoch)
-        # self.writer.add_scalar('train/Cross_Entropy_loss',loss_1/num_img_tr,epoch)
-        # self.writer.add_scalar('train/GatedCRF_Loss',loss_2/num_img_tr,epoch)
+        self.writer.add_scalar('train/Cross_Entropy_loss',loss_1/num_img_tr,epoch)
+        self.writer.add_scalar('train/GatedCRF_Loss',loss_2/num_img_tr,epoch)
         print('Loss: {}'.format(train_loss/num_img_tr))
 
         if self.args.no_val:
@@ -158,37 +158,35 @@ class Trainer(object):
         tbar = tqdm(loader, desc='\r')
 
         test_loss = 0.0
-        t_loss_1 = 0.0
-        t_loss_2 = 0.0
+        loss_1 = 0.0
+        loss_2 = 0.0
 
         idr_thresholds = [0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55]
         idr_mean_epoch = np.zeros(len(idr_thresholds))
 
         num_itr=len(loader)
-
+        sample_count = 0
         for i, sample in enumerate(tbar):
             image,depth,target = sample['image'],sample['depth'],sample['label']
             depth_mask =  depth!=0
             depth_mask =depth_mask.float()
-            dest_map = torch.ones(size=depth_mask.shape).float()
+            src_map = torch.ones(size=depth_mask.shape).float()
 
             if self.args.cuda:
                 image,depth,target = image.cuda(),depth.cuda(),target.cuda()
                 depth_mask = depth_mask.cuda()
-                dest_map = dest_map.cuda()
+                src_map = src_map.cuda()
 
             with torch.no_grad():
                 output = self.model(image,depth,depth_mask)
 
             class_weights = torch.from_numpy(calculate_weights_batch(sample, self.nclass).astype(np.float32))
-            # cross_entrop_loss = self.criterion_2.CrossEntropyLoss(output, target, weight=class_weights)
-            gatedCRF_loss = self.criterion.gatedCRFLoss(output, target, image, weight=class_weights, source_map=dest_map,
-                                                        destination_map=depth_mask)
-
-            loss = gatedCRF_loss
+            ce_loss, gcrf_loss = self.criterion(output, target, image, depth, weight=class_weights, source_map=src_map,
+                                                destination_map=depth_mask)
+            loss = ce_loss + gcrf_loss
             test_loss += loss.item()
-            # t_loss_1 += cross_entrop_loss.item()
-            # t_loss_2 += gatedCRF_loss.item()
+            loss_1 += ce_loss.item()
+            loss_2 += gcrf_loss.item()
 
             tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
 
@@ -202,15 +200,12 @@ class Trainer(object):
 
             # Add batch sample into evaluator
             self.evaluator.add_batch(target, pred)
-            #TODO: IDR batch code
             idr_avg = np.array([self.evaluator.get_idr(pred,target,class_value=2,threshold=value) for value in idr_thresholds])
 
-            # Visualise validation set for only bad predictions
             global_step = i + num_itr * epoch
-            self.summary.vis_grid(self.writer, self.args.dataset, image, depth,
-                                  target, pred, pred_softmax, global_step,split="Validation")
-
+            self.summary.vis_grid(self.writer, self.args.dataset, image[0], depth[0],target[0], pred[0], pred_softmax[0], global_step,split="Validation")
             idr_mean_epoch += idr_avg
+            sample_count += 1
 
         # Fast test during the training
         Acc = self.evaluator.Pixel_Accuracy()
@@ -218,12 +213,11 @@ class Trainer(object):
         mIoU = self.evaluator.Mean_Intersection_over_Union()
         FWIoU = self.evaluator.Frequency_Weighted_Intersection_over_Union()
         recall,precision=self.evaluator.pdr_metric(class_id=2)
-        idr_mean_epoch = idr_mean_epoch/(self.evaluator.idr_count/len(idr_thresholds))
-        print("Image in Val Set with Small-Obs",self.evaluator.idr_count/len(idr_thresholds),num_itr)
-
+        idr_mean_epoch = idr_mean_epoch/sample_count
+        print(sample_count)
         self.writer.add_scalar('val/total_loss_epoch', test_loss/num_itr, epoch)
-        # self.writer.add_scalar('val/Cross_Entropy_loss',t_loss_1/num_itr,epoch)
-        # self.writer.add_scalar('val/GatedCRF_Loss',t_loss_2/num_itr,epoch)
+        self.writer.add_scalar('val/Cross_Entropy_loss',loss_1/num_itr,epoch)
+        self.writer.add_scalar('val/GatedCRF_Loss',loss_2/num_itr,epoch)
 
         self.writer.add_scalar('val/mIoU', mIoU, epoch)
         self.writer.add_scalar('val/Recall',recall,epoch)
@@ -309,7 +303,7 @@ def main():
     # cuda, seed and logging
     parser.add_argument('--no-cuda', action='store_true', default=
                         False, help='disables CUDA training')
-    parser.add_argument('--gpu-ids', type=str, default='0',
+    parser.add_argument('--gpu-ids', type=str, default='0,1',
                         help='use which gpu to train, must be a \
                         comma-separated list of integers only (default=0)')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
@@ -371,7 +365,8 @@ def main():
             'pascal': 0.007,
             'small_obstacle': 0.01
         }
-        args.lr = lrs[args.dataset.lower()] / (4 * len(args.gpu_ids)) * args.batch_size
+        # args.lr = lrs[args.dataset.lower()] / (4 * len(args.gpu_ids)) * args.batch_size
+        args.lr = 0.01
 
 
     if args.checkname is None:
