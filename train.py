@@ -114,7 +114,7 @@ class Trainer(object):
                 """
                 self.criterion = GatedCRFLoss(num_classes=3,
                                               image_shape=(args.batch_size, 4,
-                                                           512, 720), cuda=args.cuda)
+                                                           512, 512), cuda=args.cuda)
                 self.model, self.optimizer = model, optimizer
 
                 # Define Evaluator
@@ -197,7 +197,7 @@ class Trainer(object):
                                                            source_map=torch.ones((self.args.batch_size,
                                                                                        1,
                                                                                        512,
-                                                                                      720), dtype=torch.float).cuda())
+                                                                                      512), dtype=torch.float).cuda())
                         loss.backward()
                         self.optimizer.step()
                         train_loss += loss.item()
