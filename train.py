@@ -1,3 +1,4 @@
+import traceback
 from fastai.utils.mem import GPUMemTrace
 import argparse
 import torch
@@ -123,7 +124,7 @@ class Trainer(object):
                                                                                         args.epochs, len(self.train_loader))
 
                 # write the graph
-                tensor = torch.zeros([2, 4, 512, 512])
+                tensor = torch.zeros([2, 5, 512, 512])
                 self.writer.add_graph(model, tensor)
 
                 # Using cuda
@@ -258,8 +259,8 @@ class Trainer(object):
                                 'best_pred': self.best_pred,
                         }, is_best)
 
-            except Exception as message:
-                print('Damn!!! {}'.format(message))
+            except Exception:
+                traceback.print_exc()
                 exit(0)
 
 

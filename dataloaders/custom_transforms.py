@@ -1,7 +1,7 @@
 import torch
 import random
 import numpy as np
-
+from torchvision import transforms
 from PIL import Image, ImageOps, ImageFilter
 
 class Normalize(object):
@@ -162,12 +162,15 @@ class RandomCrop(object):
 
     def __call__(self, sample):
         img=np.asarray(sample['image'])
+        binary_mask = sample['binary_mask']
         mask=np.asarray(sample['label'])
         h,w,_=img.shape
+        print(w)
         assert h == self.crop_size[0], "Input image height incorrect"
         crop_w=np.random.randint(0,w-self.crop_size[1])
-        return {'image': Image.fromarray(img[0:self.crop_size[0],crop_w:crop_w+self.crop_size[1],:]),
-                'label': Image.fromarray(mask[0:self.crop_size[0],crop_w:crop_w+self.crop_size[1]])}
+        return {'image': img[0:self.crop_size[0],crop_w:crop_w+self.crop_size[1],:],
+                'label': mask[0:self.crop_size[0],crop_w:crop_w+self.crop_size[1]],
+                'binary_mask': binary_mask[0:self.crop_size[0],crop_w:crop_w+self.crop_size[1]]}
 
 class FixScaleCrop(object):
     def __init__(self, crop_size):
@@ -210,3 +213,44 @@ class FixedResize(object):
 
         return {'image': img,
                 'label': mask}
+
+class ColorJitter(object):
+
+    """Add color jitter to input image"""
+
+    def __init__(self,jitter=0.1):
+        self.jitter = jitter
+
+    def __call__(self,sample):
+        img = sample['image']
+        label = sample['label']
+        binary_mask = sample['binary_mask']
+        transform_rgb = transforms.ColorJitter(self.jitter,self.jitter,self.jitter, 0)
+
+        return {'image': np.concatenate((np.asarray(transform_rgb(Image.fromarray(img[:, :, :3]))), img[:, :, 3:]), 2),
+                'label': label,
+                'binary_mask': binary_mask}
+
+class FixedCrop(object):
+
+    # Crop according to given dimensions where,
+    # x1,x2 width crop
+    # y1,y2 height crop
+
+    def __init__(self,x1,x2,y1,y2):
+        self.x1,self.x2,self.y1,self.y2 = y1,y2,x1,x2
+
+    def __call__(self, sample):
+        img = sample['image']
+        print(img.shape)
+        img = img[self.y1:self.y2,self.x1:self.x2,:]
+        label = sample['label']
+        label = label[self.y1:self.y2, self.x1:self.x2]
+        binary_mask = sample['binary_mask']
+        binary_mask = binary_mask[self.y1:self.y2, self.x1:self.x2]
+        #depth = sample['depth']
+        #depth = depth[self.y1:self.y2,self.x1:self.x2]
+
+        return {'image': img,
+                'label': label,
+                'binary_mask': binary_mask}

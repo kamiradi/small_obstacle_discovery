@@ -354,7 +354,10 @@ class LNFGeneratorTorch(Dataset):
             X_rgb = LNFGeneratorTorch._mergenet_func_rgb(self._x_rgb[index])
             X_disp, X_bin_mask = LNFGeneratorTorch._mergenet_func_disparity(self._x_dis[index])
             Y_mask = LNFGeneratorTorch._mergenet_func_labels(self._y_mask[index])
-            X_ft = np.concatenate((np.asarray(X_rgb), np.asarray(X_disp)), axis=2)
+            X_ft = np.concatenate((np.asarray(X_rgb), np.asarray(X_disp),
+                                   X_bin_mask.reshape(X_bin_mask.shape[0],
+                                                      X_bin_mask.shape[1],
+                                                      1)*255), axis=2)
             sample = {'image':X_ft,
                       'label':np.asarray(Y_mask),
                       'binary_mask':np.asarray(X_bin_mask)}
@@ -410,12 +413,8 @@ class LNFGeneratorTorch(Dataset):
     # depth transformation
     def transform_tr_depth(self,sample):
 
-            composed_transforms = transforms.Compose([
+            composed_transforms = transforms.Compose([tr.RandomCrop(crop_size=(512, 512)),
                     tr.RandomHorizontalFlip(),
-                    tr.NormalizeD(mean=(0.433, 0.469, 0.408, 0.139), std=(0.187,
-                                                                         0.185,
-                                                                         0.178,
-                                                                        0.087)),
                     tr.ToTensor()
                     ])
             return composed_transforms(sample)
@@ -424,11 +423,6 @@ class LNFGeneratorTorch(Dataset):
     def transform_val_depth(self,sample):
 
             composed_transforms = transforms.Compose([
-                    tr.RandomHorizontalFlip(),
-                    tr.NormalizeD(mean=(0.433, 0.469, 0.408, 0.139), std=(0.187,
-                                                                         0.185,
-                                                                         0.178,
-                                                                        0.087)),
                     tr.ToTensor()
                     ])
             return composed_transforms(sample)
@@ -436,10 +430,6 @@ class LNFGeneratorTorch(Dataset):
     def transform_ts_depth(self,sample):
 
             composed_transforms = transforms.Compose([
-                    tr.NormalizeD(mean=(0.433, 0.469, 0.408, 0.139), std=(0.187,
-                                                                         0.185,
-                                                                         0.178,
-                                                                        0.087)),
                     tr.ToTensor()
                     ])
             return composed_transforms(sample)
