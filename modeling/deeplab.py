@@ -116,5 +116,14 @@ def init_weights_5ch():
     torch.save(checkpoint, f)
     f.close()
 
+def check_deeplab():
+    model = DeepLab(backbone='drn', output_stride=16,num_classes=3,
+                    depth=True)
+    model.eval()
+    input = torch.rand(1, 5, 512, 512)
+    output = model(input)
+
+
 if __name__ == "__main__":
-    init_weights_5ch()
+    # init_weights_5ch()
+    check_deeplab()

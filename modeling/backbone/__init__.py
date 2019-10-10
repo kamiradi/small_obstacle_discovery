@@ -6,7 +6,6 @@ def build_backbone(backbone, output_stride, BatchNorm, depth=False):
     elif backbone == 'xception':
         return xception.AlignedXception(output_stride, BatchNorm)
     elif backbone == 'drn':
-        print('backbone constructor:',depth)
         return drn.drn_d_54(BatchNorm, Depth=depth)
     elif backbone == 'mobilenet':
         return mobilenet.MobileNetV2(output_stride, BatchNorm)
