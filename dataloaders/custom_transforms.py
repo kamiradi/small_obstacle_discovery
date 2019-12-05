@@ -1,7 +1,7 @@
 import torch
 import random
 import numpy as np
-
+from torchvision import transforms
 from PIL import Image, ImageOps, ImageFilter
 
 class Normalize(object):
@@ -200,3 +200,18 @@ class FixedResize(object):
 
         return {'image': img,
                 'label': mask}
+
+class ColorJitter(object):
+
+    """Add color jitter to input image"""
+
+    def __init__(self,jitter=0.1):
+        self.jitter = jitter
+
+    def __call__(self,sample):
+        img = sample['image']
+        label = sample['label']
+        transform_rgb = transforms.ColorJitter(self.jitter,self.jitter,self.jitter, 0)
+
+        return {'image': transform_rgb(img),
+                'label': label}

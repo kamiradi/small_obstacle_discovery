@@ -1,3 +1,4 @@
+import sys
 from termcolor import colored
 import argparse
 import torch
@@ -55,7 +56,7 @@ class Trainer(object):
                 else:
                     train_imgs, _, train_labels= HLP.get_iiitds_imagesAndLabels(Path.db_root_dir(args.dataset),
                                                        num_samples=args.num_samples)
-                    test_imgs, _, test_labels= HLP.get_iiitds_imagesAndLabels(Path.db_root_dir(args.dataset),
+                    test_imgs, test_depth, test_labels= HLP.get_iiitds_imagesAndLabels(Path.db_root_dir(args.dataset),
                                                       data_type='val',
                                                       num_samples=args.num_samples)
 
@@ -64,20 +65,37 @@ class Trainer(object):
                                                          mask_path=train_labels[:40],
                                                                  flag = 'context', split='train'), batch_size = self.args.batch_size, shuffle=True)
                         self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[:40],
-                                                         mask_path=test_labels[:40], flag = 'context', split='val'), batch_size=self.args.batch_size, shuffle=True)
+                                                         mask_path=test_labels[:40],
+                                                                           flag = 'merge', split='val'), batch_size=self.args.batch_size, shuffle=True)
 
                         self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[40:],
                                               mask_path=test_labels[40:], flag =
-                                                                            'context', split='test'), batch_size=self.args.batch_size)
+                                                                            'merge', split='test'), batch_size=self.args.batch_size)
                     else:
                         self.train_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=train_imgs,
                                                                   mask_path=train_labels,
-                                                                 flag = 'context', split='train'), batch_size = self.args.batch_size, shuffle=True)
-                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs, mask_path=test_labels, flag = 'context', split='val'), batch_size=self.args.batch_size, shuffle=True)
+                                                                 flag =
+                                                                             'context',
+                                                                             split='train'),
+                                                       batch_size =
+                                                       self.args.batch_size,
+                                                       shuffle=True,
+                                                       drop_last=True)
+                        self.val_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs,
+                                                         disparity_path =
+                                                         test_depth,
+                                                         mask_path=test_labels,
+                                                         flag = 'merge',
+                                                         split='val'),
+                                   batch_size=self.args.batch_size,
+                                   shuffle=True, drop_last=True)
 
                         self.test_loader = DataLoader(HLP.LNFGeneratorTorch(rgb_path=test_imgs[1:],
-                                              mask_path=test_labels[1:], flag =
-                                                                            'context', split='test'), batch_size=self.args.batch_size)
+                                                         disparity_path=test_depth[1:],
+                                              mask_path=test_labels[1:], flag = 'merge',
+                                                                            split='test'),
+                                                      batch_size=self.args.batch_size,
+                                                     drop_last=True)
                     # Define network
                     model = DeepLab(num_classes=self.nclass,
                                                     backbone=args.backbone,
@@ -171,6 +189,9 @@ class Trainer(object):
                         self.writer.add_scalar('loss/train_batch_loss', loss.item(), i + num_img_tr * epoch)
 
                         # Show 10 * 3 inference results each epoch
+                        pred = output.data.cpu().numpy()
+                        target = target.clone().cpu().numpy()
+                        pred = np.argmax(pred, axis=1)
                         if i % (num_img_tr // 10) == 0:
                                 global_step = i + num_img_tr * epoch
                                 if self.args.depth:
@@ -179,19 +200,16 @@ class Trainer(object):
                                                                  image[:,:3,:,], target,
                                                                  output,
                                                                  global_step,
-                                                                 flag='train')
+                                                                 split='train')
                                 else:
-                                    self.summary.visualize_image(self.writer,
+                                    self.summary.vis_grid(self.writer,
                                                                  self.args.dataset,
-                                                                 image, target,
-                                                                 output,
+                                                                 image.clone().data.cpu().numpy()[0], target[0],
+                                                                 pred[0],
                                                                  global_step,
-                                                                 flag='train')
+                                                                 split='train')
 
 
-                        pred = output.data.cpu().numpy()
-                        target = target.cpu().numpy()
-                        pred = np.argmax(pred, axis=1)
                         # Add batch sample into evaluator
                         self.evaluator.add_batch(target, pred)
 
@@ -201,7 +219,7 @@ class Trainer(object):
                 mIoU = self.evaluator.Mean_Intersection_over_Union()
                 FWIoU = self.evaluator.Frequency_Weighted_Intersection_over_Union()
                 recall,precision=self.evaluator.pdr_metric(class_id=2)
-                idr = self.evaluator.idr_metric(class_id=2)
+                idr = self.evaluator.get_idr(class_value=2)
                 self.writer.add_scalar('loss/train_epoch_loss', train_loss, epoch)
                 self.writer.add_scalar('metrics/train_miou', mIoU, epoch)
                 self.writer.add_scalar('metrics/train_acc', Acc, epoch)
@@ -244,8 +262,11 @@ class Trainer(object):
                 idr = 0
                 num_itr=len(loader)
 
+                idr_thresholds = [0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50,
+                                  0.55]
+
                 for i, sample in enumerate(tbar):
-                        image, target = sample['image'], sample['label']
+                        image, depth, target = sample['image'][:, 0:3, :, :], sample['image'][:, -1, :, :], sample['label']
                         if self.args.cuda:
                                 image, target = image.cuda(), target.cuda()
                         with torch.no_grad():
@@ -253,36 +274,47 @@ class Trainer(object):
                         loss = self.criterion.CrossEntropyLoss(output,target,weight=torch.from_numpy(calculate_weights_batch(sample,self.nclass).astype(np.float32)))
                         test_loss += loss.item()
                         tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
+
+
+                        pred = output.data.cpu().numpy()
+                        target = target.clone().cpu().numpy()
+                        pred = np.argmax(pred, axis=1)
+
                         if i % (num_itr // 5) == 0:
                                 global_step = i + num_itr * epoch
                                 if not self.args.depth:
-                                    self.summary.visualize_image(self.writer,
+                                    self.summary.vis_grid(self.writer,
                                                                  self.args.dataset,
-                                                                 image, target,
-                                                                 output,
+                                                                 image.clone().data.cpu().numpy()[0], target[0],
+                                                                 pred[0],
                                                                  global_step,
-                                                                 flag=visualize_flag)
+                                                                 split=visualize_flag)
                                 else:
                                     self.summary.visualize_image(self.writer,
                                                                  self.args.dataset,
                                                                  image[:,:3,:,:], target,
                                                                  output, conf,
                                                                  global_step,
-                                                                 flag=visualize_flag)
+                                                                 split=visualize_flag)
 
-                        pred = output.data.cpu().numpy()
-                        target = target.cpu().numpy()
-                        pred = np.argmax(pred, axis=1)
                         # Add batch sample into evaluator
-                        self.evaluator.add_batch(target, pred)
+                        print('prediction shape: ', pred.shape)
+                        print('target shape: ', target.shape)
+                        print('depth shape: ', depth.shape)
+                        sys.exit()
+                        self.evaluator.add_batch(target, pred, depth)
                 # Fast test during the training
                 Acc = self.evaluator.Pixel_Accuracy()
                 Acc_class = self.evaluator.Pixel_Accuracy_Class()
                 mIoU = self.evaluator.Mean_Intersection_over_Union()
                 FWIoU = self.evaluator.Frequency_Weighted_Intersection_over_Union()
                 recall,precision=self.evaluator.pdr_metric(class_id=2)
-                idr = self.evaluator.idr_metric(class_id=2)
+                idr = self.evaluator.get_idr(class_value=2)
+                idr_avg = np.array([self.evaluator.get_idr(class_value=2, threshold=value) for value in idr_thresholds])
                 self.writer.add_scalar('loss/val_epoch_loss', test_loss, epoch)
+                self.writer.add_scalar('metrics/val_idr_0.20', idr_avg[0], epoch)
+                self.writer.add_scalar('metrics/val_idr_0.55', idr_avg[-1], epoch)
+                self.writer.add_scalar('metrics/val_idr_avg', np.mean(idr_avg), epoch)
                 self.writer.add_scalar('metrics/val_miou', mIoU, epoch)
                 self.writer.add_scalar('metrics/val_acc', Acc, epoch)
                 self.writer.add_scalar('metrics/val_acc_cl', Acc_class, epoch)
@@ -300,17 +332,22 @@ class Trainer(object):
                 print('Loss: %.3f' % test_loss)
                 print('Recall/PDR:{}'.format(recall))
                 print('Precision:{}'.format(precision))
+                print('idr:{}'.format(idr))
+                if self.args.debug:
+                    idr = 0.5
 
-                new_pred = mIoU
+                new_pred = idr
                 if new_pred > self.best_pred:
-                        is_best = True
-                        self.best_pred = new_pred
-                        self.saver.save_checkpoint({
-                                'epoch': epoch + 1,
-                                'state_dict': self.model.module.state_dict(),
-                                'optimizer': self.optimizer.state_dict(),
-                                'best_pred': self.best_pred,
-                        }, is_best)
+                    is_best = True
+                else:
+                    is_best = False
+                self.best_pred = new_pred
+                self.saver.save_checkpoint({
+                        'epoch': epoch + 1,
+                        'state_dict': self.model.module.state_dict(),
+                        'optimizer': self.optimizer.state_dict(),
+                        'best_pred': self.best_pred,
+                }, is_best, filename='checkpoint_'+str(epoch+1)+'_.pth.tar')
 
 def main():
         parser = argparse.ArgumentParser(description="PyTorch DeeplabV3Plus Training")

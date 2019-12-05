@@ -353,8 +353,8 @@ class LNFGeneratorTorch(Dataset):
             X_disp = LNFGeneratorTorch._mergenet_func_disparity(self._x_dis[index])
             Y_mask = LNFGeneratorTorch._mergenet_func_labels(self._y_mask[index])
             X_ft = np.concatenate((np.asarray(X_rgb), np.asarray(X_disp)), axis=2)
-            sample = {'image':Image.fromarray(X_ft),
-                      'label':Image.fromarray(np.asarray(Y_mask))}
+            sample = {'image':X_ft,
+                      'label':np.asarray(Y_mask)}
             if self.split == 'train':
                 return self.transform_tr_depth(sample)
             elif self.split == 'val':
@@ -409,11 +409,6 @@ class LNFGeneratorTorch(Dataset):
 
             composed_transforms = transforms.Compose([
                     tr.RandomHorizontalFlip(),
-                    tr.RandomCrop(crop_size=(512,512)),
-                    tr.NormalizeD(mean=(0.433, 0.469, 0.408, 0.139), std=(0.187,
-                                                                         0.185,
-                                                                         0.178,
-                                                                        0.087)),
                     tr.ToTensor()
                     ])
             return composed_transforms(sample)
@@ -423,11 +418,6 @@ class LNFGeneratorTorch(Dataset):
 
             composed_transforms = transforms.Compose([
                     tr.RandomHorizontalFlip(),
-                    tr.RandomCrop(crop_size=(512,512)),
-                    tr.NormalizeD(mean=(0.433, 0.469, 0.408, 0.139), std=(0.187,
-                                                                         0.185,
-                                                                         0.178,
-                                                                        0.087)),
                     tr.ToTensor()
                     ])
             return composed_transforms(sample)
@@ -435,31 +425,23 @@ class LNFGeneratorTorch(Dataset):
     def transform_ts_depth(self,sample):
 
             composed_transforms = transforms.Compose([
-                    tr.NormalizeD(mean=(0.433, 0.469, 0.408, 0.139), std=(0.187,
-                                                                         0.185,
-                                                                         0.178,
-                                                                        0.087)),
                     tr.ToTensor()
                     ])
             return composed_transforms(sample)
     def transform_tr(self,sample):
             composed_transforms = transforms.Compose([
-                    tr.RandomHorizontalFlip(),
-                    tr.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+                    tr.ColorJitter(),
                     tr.ToTensor()
                     ])
             return composed_transforms(sample)
     def transform_val(self,sample):
             composed_transforms = transforms.Compose([
-                    tr.RandomHorizontalFlip(),
-                    tr.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
                     tr.ToTensor()])
 
             return composed_transforms(sample)
 
     def transform_ts(self,sample):
             composed_transforms = transforms.Compose([
-                    tr.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
                     tr.ToTensor()])
 
             return composed_transforms(sample)
@@ -468,24 +450,31 @@ class LNFGeneratorTorch(Dataset):
     @staticmethod
     def _mergenet_func_rgb(path):
         im = np.asarray(Image.open(path, 'r'))
-        im_cropped = im[281:793, 128:1920, :]
+        im_cropped = im[50:562, 280:1000, :]
+        print('image shape: ', im_cropped.shape)
         return im_cropped
 
     @staticmethod
     def _mergenet_func_disparity(path):
         im = np.asarray(Image.open(path, 'r'))
         im = im.reshape(im.shape[0], im.shape[1], 1)
-        im_cropped = im[281:793, 128:1920, :]
-        im_cropped = im_cropped/256
-        im_cropped = np.rint(im_cropped)
+        # im_cropped = im[281:793, 128:1920, :]
+        im_cropped = im[50:562, 280:1000, :]
+        # im_cropped = im_cropped/256
+        # im_cropped = np.rint(im_cropped)
+        im_cropped = im_cropped != 0
         im_cropped = im_cropped.astype(np.uint8)
+        print('depth shape: ', im_cropped.shape)
         return im_cropped
 
     @staticmethod
     def _mergenet_func_labels(path):
         im = np.asarray(Image.open(path, 'r'))
-        im_cropped = im[281:793, 128:1920].copy()
+        im_cropped = im[50:562, 280:1000].copy()
+        # im_cropped = im[281:793, 128:1920].copy()
         im_cropped[im_cropped == 255] = 0
+        im_cropped[im_cropped > 2] = 2
+        print('label shape: ', im_cropped.shape)
         return im_cropped
 
 
@@ -506,6 +495,7 @@ class LNFGeneratorTorch(Dataset):
         # for iiitds
         im_cropped = im[50:562, 280:1000].copy()
         im_cropped[im_cropped == 255] = 0
+        im_cropped[im_cropped > 2] = 2
         return im_cropped
 
 

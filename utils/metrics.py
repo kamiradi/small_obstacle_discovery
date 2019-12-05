@@ -1,3 +1,4 @@
+import scipy.ndimage as ndi
 import numpy as np
 import cv2
 
@@ -64,7 +65,7 @@ class Evaluator(object):
             precision = None
         return recall,precision
 
-    def add_batch(self, gt_image, pre_image):
+    def add_batch(self, gt_image, pre_image, depth):
         assert gt_image.shape == pre_image.shape
         if len(self.gt_labels) == 0 and len(self.pred_labels) == 0:
             self.gt_labels=gt_image
@@ -145,6 +146,38 @@ class Evaluator(object):
             idr = None
         return idr
 
+    def get_idr(self,class_value,threshold=0.4):
+        """Returns Instance Detection Ratio (IDR)
+        for a given class, where class_id = numeric label of that class in segmentation target img
+        Threshold is defined as minimum ratio of pixels between prediction and target above
+        which an instance is defined to have been detected
+        """
+        pred = self.pred_labels
+        target = self.gt_labels
+        idr = []
+        idr_count = 0
+        for num in range(target.shape[0]):
+            pred_mask = pred[num] == class_value
+            target_mask = target[num] == class_value
+            instance_id, instance_num = ndi.label(target_mask)  # Return number of instances of given class present in target image
+            count = 0
+            if instance_num == 0:
+                idr.append(0.0)
+            else:
+                for id in range(1, instance_num + 1):       # Background is given instance id zero
+                    x, y = np.where(instance_id == id)
+                    detection_ratio = np.count_nonzero(pred_mask[x, y]) / np.count_nonzero(target_mask[x, y])
+                    if detection_ratio >= threshold:
+                        count += 1
+
+                idr.append(float(count / instance_num))
+                idr_count += 1
+
+        if idr_count == 0:
+            return 0
+        else:
+            idr = np.sum(idr)/idr_count
+            return idr
 
 
 
