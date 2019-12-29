@@ -11,3 +11,4 @@ pipeouts/
 *.pth
 *.pyc
 *.DS_Store
+*.swp
